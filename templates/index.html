@@ -1,0 +1,2274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automatically Fill Official PDF Forms Online | FormFillAI</title>
+    <meta name="description" content="Automatically fill official PDF forms online with FormFillAI. Upload a fillable PDF and JSON data to get back a ready-to-submit form.">
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --primary: #2563eb;
+            --text: #0f172a;
+            --muted: #64748b;
+            --error: #dc2626;
+            --success: #16a34a;
+            
+            /* Extended theme system */
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --border: #e2e8f0;
+            --accent: #2563eb;
+            --accent-contrast: #ffffff;
+            --text-muted: rgba(15, 23, 42, 0.7);
+            --hover-bg: #f1f5f9;
+            --active-bg: #eff6ff;
+            --focus-ring: rgba(37, 99, 235, 0.5);
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0f172a;
+                --card: #1e293b;
+                --text: #f1f5f9;
+                --muted: #94a3b8;
+                --surface: #1e293b;
+                --surface-2: #0f172a;
+                --border: #334155;
+                --text-muted: rgba(226, 232, 240, 0.75);
+                --hover-bg: #334155;
+                --active-bg: #1e3a8a;
+                --focus-ring: rgba(96, 165, 250, 0.5);
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .page-wrapper {
+            width: 100%;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .content-wrapper {
+            width: min(980px, 100% - 48px);
+            margin: 0 auto;
+            padding: 16px;
+        }
+        /* Legacy support - can be removed if not used elsewhere */
+        header.site-header {
+            height: 56px;
+            flex: 0 0 56px;
+            position: sticky;
+            top: 0;
+            background: var(--bg);
+            z-index: 100;
+            border-bottom: 1px solid var(--border);
+            overflow: visible;
+        }
+        .header-inner {
+            width: min(980px, 100% - 48px);
+            margin: 0 auto;
+            padding: 0 24px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .brand {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--text);
+        }
+        .header-right {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        main.site-main {
+            flex: 1;
+            width: 100%;
+            overflow: visible;
+        }
+        main.site-main .container {
+            width: min(980px, 100% - 48px);
+            margin: 0 auto;
+            padding: 16px 24px 24px;
+        }
+        .hero {
+            margin: 10px 0 16px;
+            text-align: center;
+            max-width: 760px;
+            margin-left: auto;
+            margin-right: auto;
+            overflow: visible;
+        }
+        .hero h1 {
+            margin: 0 0 6px;
+            font-size: clamp(26px, 2.2vw, 40px);
+            line-height: 1.15;
+            font-weight: 700;
+            overflow: visible;
+        }
+        .hero p.sub {
+            margin: 0;
+            font-size: clamp(13px, 1.1vw, 16px);
+            color: var(--muted);
+            line-height: 1.5;
+        }
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+            margin-top: 0;
+        }
+        @media (min-width: 1024px) {
+            .main-content.has-preview {
+                grid-template-columns: 1fr 1fr;
+                gap: 18px;
+            }
+        }
+        .card {
+            background: var(--card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+            width: 100%;
+            padding: 20px;
+        }
+        .upload-card {
+            margin-top: 14px;
+        }
+        .pricing {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 14px;
+        }
+        .pricing-tier {
+            background: var(--card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            padding: 18px;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .pricing-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin: 0;
+        }
+        .pricing-title h2 {
+            margin: 0;
+            font-size: 1.1rem;
+        }
+        .price {
+            font-weight: 700;
+        }
+        .pricing-tier ul {
+            margin: 0;
+            padding-left: 1.2rem;
+            color: var(--muted);
+            font-size: 0.95rem;
+            list-style: none;
+        }
+        .pricing-tier ul li {
+            margin-bottom: 6px;
+        }
+        .pricing-tier form {
+            margin-top: auto;
+        }
+        .pricing-tier button {
+            height: 44px;
+            width: 100%;
+            margin-top: 0;
+        }
+        form {
+            margin-top: 0.75rem;
+            display: grid;
+            gap: 0.75rem;
+        }
+        label {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 0.35rem;
+        }
+        input[type="file"], input[type="text"], input[type="checkbox"], select, textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        input[type="checkbox"] {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+        textarea {
+            font-family: inherit;
+            resize: vertical;
+        }
+        .helper {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-top: 0.2rem;
+        }
+        button {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 0.85rem 1.2rem;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+            min-height: 40px;
+        }
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .note {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 10px;
+            padding: 0.75rem;
+            font-size: 0.95rem;
+        }
+        #fields-container {
+            display: none;
+            margin-top: 1rem;
+        }
+        .field-group {
+            margin-bottom: 1rem;
+        }
+        .field-group label {
+            display: flex;
+            align-items: center;
+        }
+        .advanced-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        .advanced-toggle {
+            background: none;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 0.9rem;
+            padding: 0;
+        }
+        .advanced-content {
+            display: none;
+            margin-top: 1rem;
+        }
+        .advanced-content.show {
+            display: block;
+        }
+        #status {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.95rem;
+        }
+        #status.error {
+            background: #fee2e2;
+            color: var(--error);
+        }
+        #status.success {
+            background: #dcfce7;
+            color: var(--success);
+        }
+        #ai-text-area {
+            min-height: 100px;
+        }
+        .ai-section {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        .ai-section h3 {
+            margin: 0 0 0.5rem;
+            font-size: 1rem;
+        }
+        #preview-container {
+            display: none;
+            width: 100%;
+        }
+        #preview-container:not([data-has-preview]) {
+            display: none !important;
+        }
+        .preview-placeholder {
+            padding: 3rem 2rem;
+            text-align: center;
+            background: var(--surface-2);
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            color: var(--text-muted);
+        }
+        @media (min-width: 1024px) {
+            #preview-container {
+                display: block;
+            }
+            #preview-container .card {
+                position: sticky;
+                top: 1.5rem;
+                align-self: start;
+                height: fit-content;
+                max-height: calc(100vh - 3rem);
+                overflow-y: auto;
+            }
+        }
+        @media (max-width: 1023px) {
+            #preview-container .card {
+                position: static;
+            }
+        }
+        .preview-wrapper {
+            position: relative;
+            width: 100%;
+            height: 80vh;
+            min-height: 500px;
+            max-height: 90vh;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #f8fafc;
+            overflow: hidden;
+        }
+        @media (min-width: 1024px) {
+            .preview-wrapper {
+                height: 70vh;
+                min-height: 600px;
+                max-height: calc(100vh - 250px);
+            }
+        }
+        #preview-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+        .preview-controls {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: flex;
+            gap: 0.5rem;
+            z-index: 10;
+        }
+        .preview-controls button {
+            background: rgba(255, 255, 255, 0.95);
+            color: var(--text);
+            border: 1px solid #cbd5e1;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: background 0.2s;
+        }
+        .preview-controls button:hover {
+            background: #ffffff;
+        }
+        .preview-fallback {
+            padding: 2rem;
+            text-align: center;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .preview-fallback a {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+        .preview-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .preview-actions button {
+            flex: 1;
+        }
+        /* Fullscreen modal */
+        .fullscreen-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 1000;
+            flex-direction: column;
+        }
+        .fullscreen-modal.active {
+            display: flex;
+        }
+        .fullscreen-header {
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .fullscreen-header h3 {
+            margin: 0;
+            color: #fff;
+            font-size: 1.1rem;
+        }
+        .fullscreen-close {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .fullscreen-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .fullscreen-iframe-container {
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+        }
+        .fullscreen-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        /* Responsive adjustments */
+        @media (max-width: 820px) {
+            .header-inner,
+            main.site-main .container {
+                width: calc(100% - 24px);
+                padding-left: 12px;
+                padding-right: 12px;
+            }
+            .pricing {
+                grid-template-columns: 1fr;
+            }
+            main.site-main .container {
+                padding-top: 12px;
+            }
+            .hero {
+                margin: 8px 0 12px;
+            }
+            .hero h1 {
+                font-size: clamp(22px, 5vw, 28px);
+            }
+            .hero p.sub {
+                font-size: clamp(12px, 3vw, 14px);
+            }
+            header.site-header {
+                height: auto;
+                min-height: 56px;
+            }
+            .header-inner {
+                flex-direction: column;
+                align-items: flex-start;
+                padding-top: 8px;
+                padding-bottom: 8px;
+            }
+            .header-right {
+                width: 100%;
+                justify-content: space-between;
+                margin-top: 8px;
+            }
+            .preview-wrapper {
+                height: 70vh;
+                min-height: 400px;
+            }
+            .preview-controls {
+                top: 0.25rem;
+                right: 0.25rem;
+            }
+            .preview-controls button {
+                padding: 0.4rem 0.6rem;
+                font-size: 0.8rem;
+            }
+            .preview-actions {
+                flex-direction: column;
+            }
+        }
+        .ai-fix-section {
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        .ai-fix-section h3 {
+            margin: 0 0 0.5rem;
+            font-size: 1rem;
+        }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .lang-switcher {
+            position: relative;
+        }
+        .lang-picker-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .lang-picker-btn:hover {
+            background: var(--hover-bg);
+            border-color: var(--accent);
+        }
+        .lang-picker-btn:focus {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+        }
+        .lang-picker-btn .flag {
+            font-size: 1.2rem;
+        }
+        .lang-picker-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            right: 0;
+            width: 320px;
+            max-width: calc(100vw - 2rem);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            max-height: 400px;
+            overflow: hidden;
+            flex-direction: column;
+            z-index: 1000;
+        }
+        @media (prefers-color-scheme: dark) {
+            .lang-picker-dropdown {
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            }
+        }
+        .lang-picker-dropdown.open {
+            display: flex;
+        }
+        .lang-picker-search {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .lang-picker-search input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: var(--surface-2);
+            color: var(--text);
+            transition: border-color 0.2s;
+        }
+        .lang-picker-search input:focus {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+            border-color: var(--accent);
+        }
+        .lang-picker-search input::placeholder {
+            color: var(--text-muted);
+        }
+        .lang-picker-list {
+            overflow-y: auto;
+            max-height: 320px;
+            background: var(--surface);
+        }
+        .lang-picker-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-size: 0.95rem;
+            color: var(--text);
+        }
+        .lang-picker-item:hover {
+            background: var(--hover-bg);
+        }
+        .lang-picker-item:focus {
+            background: var(--hover-bg);
+            outline: 2px solid var(--focus-ring);
+            outline-offset: -2px;
+        }
+        .lang-picker-item.active {
+            background: var(--active-bg);
+            font-weight: 600;
+            color: var(--text);
+        }
+        .lang-picker-item.active:hover {
+            background: var(--active-bg);
+        }
+        .lang-picker-item .flag {
+            font-size: 1.3rem;
+            flex-shrink: 0;
+        }
+        .lang-picker-item .names {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+        .lang-picker-item .native-name {
+            font-weight: 500;
+            color: var(--text);
+        }
+        .lang-picker-item .english-name {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        /* Ensure active state maintains contrast - native name stays text, english name stays muted */
+        .lang-picker-item.active .native-name {
+            color: var(--text);
+        }
+        .lang-picker-item.active .english-name {
+            color: var(--text-muted);
+        }
+        @media (max-width: 768px) {
+            .header-controls {
+                flex-direction: column;
+                align-items: flex-end;
+            }
+            .lang-picker-dropdown {
+                right: auto;
+                left: 0;
+                width: 100%;
+            }
+        }
+        .header-controls {
+            display: none;
+        }
+        .auth-section {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .auth-btn {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        .auth-btn:hover {
+            background: var(--hover-bg);
+            border-color: var(--accent);
+        }
+        .auth-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .auth-btn.primary {
+            background: var(--accent);
+            color: var(--accent-contrast);
+            border-color: var(--accent);
+        }
+        .auth-btn.primary:hover {
+            background: #1d4ed8;
+        }
+        .user-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .user-pill:hover {
+            background: var(--hover-bg);
+            border-color: var(--accent);
+        }
+        .user-pill .email {
+            font-weight: 500;
+            color: var(--text);
+        }
+        .user-pill .chevron {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            transition: transform 0.2s;
+        }
+        .user-pill.open .chevron {
+            transform: rotate(180deg);
+        }
+        .user-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            right: 0;
+            min-width: 180px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+            z-index: 1000;
+        }
+        .user-dropdown.open {
+            display: block;
+        }
+        .user-dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: none;
+            background: none;
+            color: var(--text);
+            text-align: left;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.15s;
+        }
+        .user-dropdown-item:hover {
+            background: var(--hover-bg);
+        }
+        .user-dropdown-item:first-child {
+            border-bottom: 1px solid var(--border);
+        }
+        @media (prefers-color-scheme: dark) {
+            .user-dropdown {
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            }
+        }
+        .profile-selector {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .profile-selector select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.95rem;
+        }
+        .save-profile-btn {
+            margin-top: 0.5rem;
+            background: #059669;
+        }
+        .login-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-modal.active {
+            display: flex;
+        }
+        .login-modal-content {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+        .login-modal-content h3 {
+            margin: 0 0 0.5rem;
+            color: var(--text);
+            font-size: 1.5rem;
+        }
+        .login-modal-content p {
+            margin: 0 0 1.5rem;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+        .login-modal-content input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface-2);
+            color: var(--text);
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            transition: border-color 0.2s;
+        }
+        .login-modal-content input:focus {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+            border-color: var(--accent);
+        }
+        .login-modal-content button {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+        .login-modal-content button.secondary {
+            background: var(--surface-2);
+            color: var(--text);
+        }
+        .login-modal-content button.secondary:hover {
+            background: var(--hover-bg);
+        }
+        .login-status {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .login-status.success {
+            background: rgba(22, 163, 74, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(22, 163, 74, 0.3);
+        }
+        .login-status.error {
+            background: rgba(220, 38, 38, 0.1);
+            color: var(--error);
+            border: 1px solid rgba(220, 38, 38, 0.3);
+        }
+        .login-status.info {
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--accent);
+            border: 1px solid rgba(37, 99, 235, 0.3);
+        }
+        .dev-link {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: var(--surface-2);
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            word-break: break-all;
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+        .dev-link a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .dev-link a:hover {
+            text-decoration: underline;
+        }
+        @media (max-width: 768px) {
+            .header-controls {
+                position: static;
+                justify-content: flex-end;
+                margin-bottom: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-wrapper">
+        <header class="site-header">
+            <div class="header-inner">
+                <div class="brand">FormFillAI</div>
+                <div class="header-right">
+                    <div class="lang-switcher">
+                        <button class="lang-picker-btn" id="lang-picker-btn" aria-label="Select language" aria-haspopup="true" aria-expanded="false">
+                            <span class="flag" id="lang-picker-flag">🇬🇧</span>
+                            <span id="lang-picker-text">English</span>
+                            <span style="margin-left: 0.25rem;">▼</span>
+                        </button>
+                        <div class="lang-picker-dropdown" id="lang-picker-dropdown" role="menu" aria-label="Language selection">
+                            <div class="lang-picker-search">
+                                <input type="text" id="lang-picker-search" placeholder="Search language..." data-i18n-placeholder="search_language" autocomplete="off" aria-label="Search languages">
+                            </div>
+                            <div class="lang-picker-list" id="lang-picker-list" role="listbox"></div>
+                        </div>
+                    </div>
+                    <div class="auth-section">
+                        <div id="auth-logged-out">
+                            <button class="auth-btn primary" id="sign-in-btn">Sign in</button>
+                        </div>
+                        <div id="auth-logged-in" style="display: none;">
+                            <div class="user-pill" id="user-pill">
+                                <span class="email" id="user-email"></span>
+                                <span class="chevron">▼</span>
+                            </div>
+                            <div class="user-dropdown" id="user-dropdown">
+                                <button class="user-dropdown-item" id="profiles-menu-item">Profiles</button>
+                                <button class="user-dropdown-item" id="logout-menu-item">Logout</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <main class="site-main">
+            <div class="container">
+                <section class="hero">
+                    <h1 data-i18n="title">Automatically Fill Official PDF Forms Online</h1>
+                    <p class="sub" data-i18n="subtitle">Upload a fillable PDF, fill the fields, and get back a ready-to-submit form.</p>
+                </section>
+                <div class="main-content" id="main-content-grid">
+                    <section class="card upload-card">
+            <div class="note" data-i18n="note">Max file size 10MB. PDFs without form fields will return an error.</div>
+            <form id="upload-form" action="/fill" method="post" enctype="multipart/form-data">
+                <div>
+                    <label for="pdf_file" data-i18n="fillable_pdf">Fillable PDF</label>
+                    <input type="file" id="pdf_file" name="pdf_file" accept=".pdf,application/pdf" required>
+                </div>
+                <button type="button" id="analyze-btn" data-i18n="analyze_pdf">Analyze PDF</button>
+                
+                <div id="fields-container">
+                    <div id="profile-selector-container" class="profile-selector" style="display: none;">
+                        <label for="profile-select" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Saved Profiles</label>
+                        <select id="profile-select">
+                            <option value="">-- Select a profile --</option>
+                        </select>
+                        <button type="button" id="save-profile-btn" class="save-profile-btn" style="display: none; margin-top: 0.5rem; width: 100%;">Save Current Fields as Profile</button>
+                    </div>
+                    <h3 id="fields-summary"></h3>
+                    <div id="fields-list"></div>
+                    
+                    <div class="ai-section">
+                        <h3 data-i18n="ai_section_title">AI-Assisted Fill (Optional)</h3>
+                        <label for="ai_text" data-i18n="ai_text_label">Tell us anything you want to fill</label>
+                        <textarea id="ai_text" name="ai_text" rows="4" data-i18n-placeholder="ai_text_placeholder" placeholder="Example: My name is John Doe, I live in Chicago, zip code 60661, email john@example.com, phone 555-1234..."></textarea>
+                        <button type="button" id="ai-extract-btn" style="margin-top: 0.5rem; background: #059669;" data-i18n="auto_fill_ai">Auto-Fill with AI</button>
+                        <p class="helper" style="margin-top: 0.5rem; font-size: 0.85rem;" data-i18n="ai_helper">AI will only fill empty fields. It won't overwrite fields you've already filled.</p>
+                    </div>
+                </div>
+                
+                <button id="submit-btn" type="submit" style="display: none;" data-i18n="fill_my_form">Fill My Form</button>
+            </form>
+            <p id="status" class="helper" role="status"></p>
+        </section>
+        
+        <div id="preview-container" style="display: none;">
+            <div class="card">
+                <h3 data-i18n="preview">Preview</h3>
+                <div class="preview-wrapper" id="preview-wrapper">
+                    <div class="preview-controls">
+                        <button id="fullscreen-btn" type="button" data-i18n="fullscreen" title="Fullscreen">⛶ <span data-i18n="fullscreen">Fullscreen</span></button>
+                    </div>
+                    <iframe id="preview-iframe" src="" title="PDF Preview"></iframe>
+                    <div id="preview-fallback" class="preview-fallback" style="display: none;">
+                        <p data-i18n="preview_fallback">Your browser may not support inline PDF preview.</p>
+                        <p><a id="preview-link" href="" target="_blank" data-i18n="open_preview_new_tab">Open preview in new tab</a></p>
+                    </div>
+                </div>
+                <div class="preview-actions">
+                    <button id="download-btn" type="button" data-i18n="download_pdf">Download PDF</button>
+                    <button id="edit-ai-btn" type="button" style="background: #059669;" data-i18n="edit_fix_ai">Edit & Fix with AI</button>
+                </div>
+                
+                <div id="ai-fix-container" style="display: none;">
+                    <div class="ai-fix-section">
+                        <h3 data-i18n="tell_ai_fix">Tell AI what to fix</h3>
+                        <label for="ai_feedback" data-i18n="feedback">Feedback</label>
+                        <textarea id="ai_feedback" rows="3" data-i18n-placeholder="feedback_placeholder" placeholder="Examples:&#10;- Change the address to 123 Main St&#10;- Remove notes section&#10;- Correct email typo&#10;- Make the name uppercase"></textarea>
+                        <button id="apply-ai-fix-btn" type="button" style="margin-top: 0.5rem; background: #059669;" data-i18n="apply_ai_fix">Apply AI Fix</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+                </div>
+                <section class="pricing" id="pricing">
+            <div class="pricing-tier">
+                <div class="pricing-title">
+                    <h2 data-i18n="free">Free</h2>
+                    <span class="price" data-i18n="price_free">$0</span>
+                </div>
+                <ul>
+                    <li data-i18n="free_feature_1">1 filled document per day</li>
+                    <li data-i18n="free_feature_2">Footer watermark on each page</li>
+                    <li data-i18n="free_feature_3">No signup required</li>
+                </ul>
+            </div>
+            <div class="pricing-tier">
+                <div class="pricing-title">
+                    <h2 data-i18n="pro">Pro</h2>
+                    <span class="price" data-i18n="price_pro">$19 / month</span>
+                </div>
+                <ul>
+                    <li data-i18n="pro_feature_1">Unlimited PDF fills</li>
+                    <li data-i18n="pro_feature_2">No watermark</li>
+                    <li data-i18n="pro_feature_3">Priority rendering pipeline</li>
+                </ul>
+                <form id="upgrade-form" action="/create-checkout-session" method="post">
+                    <button type="submit" id="upgrade-btn" data-i18n="upgrade_to_pro">Upgrade to Pro</button>
+                </form>
+            </div>
+        </section>
+            </div>
+        </main>
+    </div>
+    <!-- Sign In Modal -->
+    <div id="sign-in-modal" class="login-modal">
+        <div class="login-modal-content">
+            <h3>Sign in</h3>
+            <p>Enter your email to receive a magic link</p>
+            <input type="email" id="sign-in-email" placeholder="your@email.com" autocomplete="email">
+            <button type="button" id="send-magic-link-btn" class="primary">Send magic link</button>
+            <button type="button" id="close-sign-in-modal" class="secondary">Cancel</button>
+            <div id="sign-in-status"></div>
+        </div>
+    </div>
+    <!-- Fullscreen Modal -->
+    <div id="fullscreen-modal" class="fullscreen-modal">
+        <div class="fullscreen-header">
+            <h3 data-i18n="preview">Preview</h3>
+            <button id="fullscreen-close-btn" class="fullscreen-close" data-i18n="close">Close (ESC)</button>
+        </div>
+        <div class="fullscreen-iframe-container">
+            <iframe id="fullscreen-iframe" class="fullscreen-iframe" src="" title="PDF Preview Fullscreen"></iframe>
+        </div>
+    </div>
+    <script type="module">
+        // Import i18n module
+        import { initI18n, setLocale, t, updatePageTranslations, getCurrentLocale, LANGUAGES, getLanguageByCode } from '/static/i18n/i18n.js';
+        
+        // Language picker UI
+        const langPickerBtn = document.getElementById('lang-picker-btn');
+        const langPickerDropdown = document.getElementById('lang-picker-dropdown');
+        const langPickerList = document.getElementById('lang-picker-list');
+        const langPickerSearch = document.getElementById('lang-picker-search');
+        const langPickerFlag = document.getElementById('lang-picker-flag');
+        const langPickerText = document.getElementById('lang-picker-text');
+        
+        let filteredLanguages = [...LANGUAGES];
+        
+        // Render language list
+        function renderLanguageList(languages = LANGUAGES) {
+            langPickerList.innerHTML = '';
+            const currentLocale = getCurrentLocale();
+            
+            languages.forEach(lang => {
+                const item = document.createElement('button');
+                item.className = 'lang-picker-item';
+                item.setAttribute('role', 'option');
+                item.setAttribute('aria-selected', lang.code === currentLocale);
+                if (lang.code === currentLocale) {
+                    item.classList.add('active');
+                }
+                
+                item.innerHTML = `
+                    <span class="flag">${lang.flag}</span>
+                    <div class="names">
+                        <span class="native-name">${lang.nativeName}</span>
+                        ${lang.englishName !== lang.nativeName ? `<span class="english-name">${lang.englishName}</span>` : ''}
+                    </div>
+                `;
+                
+                item.addEventListener('click', () => {
+                    selectLanguage(lang.code);
+                });
+                
+                item.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        selectLanguage(lang.code);
+                    }
+                });
+                
+                langPickerList.appendChild(item);
+            });
+        }
+        
+        // Select language
+        async function selectLanguage(localeCode) {
+            setLocale(localeCode);
+            await initI18n(localeCode);
+            updatePageTranslations();
+            updateLanguagePickerButton();
+            closeLanguagePicker();
+            
+            // Update cookie via backend
+            try {
+                const formData = new FormData();
+                formData.append('lang', localeCode);
+                await fetch('/set-language', {
+                    method: 'POST',
+                    body: formData
+                });
+            } catch (err) {
+                console.warn('Failed to update language cookie:', err);
+            }
+        }
+        
+        // Update language picker button
+        function updateLanguagePickerButton() {
+            const currentLang = getLanguageByCode(getCurrentLocale());
+            if (currentLang) {
+                langPickerFlag.textContent = currentLang.flag;
+                langPickerText.textContent = currentLang.nativeName;
+            }
+        }
+        
+        // Toggle language picker
+        function toggleLanguagePicker() {
+            const isOpen = langPickerDropdown.classList.contains('open');
+            if (isOpen) {
+                closeLanguagePicker();
+            } else {
+                openLanguagePicker();
+            }
+        }
+        
+        function openLanguagePicker() {
+            langPickerDropdown.classList.add('open');
+            langPickerBtn.setAttribute('aria-expanded', 'true');
+            langPickerSearch.focus();
+            renderLanguageList(filteredLanguages);
+        }
+        
+        function closeLanguagePicker() {
+            langPickerDropdown.classList.remove('open');
+            langPickerBtn.setAttribute('aria-expanded', 'false');
+            langPickerSearch.value = '';
+            filteredLanguages = [...LANGUAGES];
+        }
+        
+        // Search languages
+        langPickerSearch.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (!query) {
+                filteredLanguages = [...LANGUAGES];
+            } else {
+                filteredLanguages = LANGUAGES.filter(lang => 
+                    lang.nativeName.toLowerCase().includes(query) ||
+                    lang.englishName.toLowerCase().includes(query) ||
+                    lang.code.toLowerCase().includes(query)
+                );
+            }
+            renderLanguageList(filteredLanguages);
+        });
+        
+        // Event listeners
+        langPickerBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleLanguagePicker();
+        });
+        
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!langPickerBtn.contains(e.target) && !langPickerDropdown.contains(e.target)) {
+                closeLanguagePicker();
+            }
+        });
+        
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && langPickerDropdown.classList.contains('open')) {
+                closeLanguagePicker();
+                langPickerBtn.focus();
+            }
+        });
+        
+        // Initialize i18n and language picker
+        (async () => {
+            const defaultLang = '{{ default_lang }}' || null;
+            await initI18n(defaultLang);
+            updatePageTranslations();
+            updateLanguagePickerButton();
+            renderLanguageList();
+            
+            // Update search placeholder after translations load
+            if (langPickerSearch) {
+                langPickerSearch.placeholder = t('search_language');
+            }
+        })();
+        
+        // Export t function globally for use in other scripts
+        window.t = t;
+        window.updatePageTranslations = updatePageTranslations;
+    </script>
+    <script>
+        // Authentication state
+        let currentPdfHash = null;
+        let userProfiles = [];
+        
+        // App configuration
+        let appConfig = {
+            stripeEnabled: false,
+            openaiEnabled: false,
+            env: 'dev'
+        };
+        
+        // Auth UI elements
+        const authLoggedOut = document.getElementById('auth-logged-out');
+        const authLoggedIn = document.getElementById('auth-logged-in');
+        const userEmailEl = document.getElementById('user-email');
+        const signInBtn = document.getElementById('sign-in-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const signInModal = document.getElementById('sign-in-modal');
+        const signInEmailInput = document.getElementById('sign-in-email');
+        const sendMagicLinkBtn = document.getElementById('send-magic-link-btn');
+        const closeSignInModalBtn = document.getElementById('close-sign-in-modal');
+        const signInStatus = document.getElementById('sign-in-status');
+        
+        // Profile UI elements
+        const profileSelectorContainer = document.getElementById('profile-selector-container');
+        const profileSelect = document.getElementById('profile-select');
+        const saveProfileBtn = document.getElementById('save-profile-btn');
+        
+        // Check authentication status
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/me');
+                if (response.ok) {
+                    const data = await response.json();
+                    authState = {
+                        authenticated: data.authenticated || false,
+                        email: data.email || null,
+                        isPro: data.isPro || false
+                    };
+                    updateAuthUI();
+                    if (authState.authenticated) {
+                        loadUserProfiles();
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to check auth status:', err);
+                authState.authenticated = false;
+                updateAuthUI();
+            }
+        }
+        
+        // Update auth UI
+        function updateAuthUI() {
+            if (authState.authenticated && authState.email) {
+                // User is logged in
+                if (authLoggedOut) authLoggedOut.style.display = 'none';
+                if (authLoggedIn) {
+                    authLoggedIn.style.display = 'block';
+                    if (userEmailEl) userEmailEl.textContent = authState.email;
+                }
+                if (profileSelectorContainer && userProfiles.length > 0) {
+                    profileSelectorContainer.style.display = 'block';
+                }
+            } else {
+                // User is not logged in - show sign in button
+                if (authLoggedOut) authLoggedOut.style.display = 'block';
+                if (authLoggedIn) authLoggedIn.style.display = 'none';
+                if (profileSelectorContainer) profileSelectorContainer.style.display = 'none';
+                userProfiles = [];
+            }
+        }
+        
+        // Load user profiles
+        async function loadUserProfiles() {
+            if (!authState.authenticated) return;
+            
+            try {
+                const response = await fetch('/api/profiles');
+                if (response.ok) {
+                    const data = await response.json();
+                    userProfiles = data.profiles || [];
+                    updateProfileSelector();
+                }
+            } catch (err) {
+                console.error('Failed to load profiles:', err);
+            }
+        }
+        
+        // Update profile selector dropdown
+        function updateProfileSelector() {
+            profileSelect.innerHTML = '<option value="">-- Select a profile --</option>';
+            userProfiles.forEach(profile => {
+                const option = document.createElement('option');
+                option.value = profile.id;
+                option.textContent = profile.name;
+                profileSelect.appendChild(option);
+            });
+            
+            if (userProfiles.length > 0 || authState.authenticated) {
+                profileSelectorContainer.style.display = 'block';
+            }
+            
+            // Show save button if user is authenticated, Pro check determines if enabled
+            if (authState.authenticated) {
+                saveProfileBtn.style.display = 'block';
+                if (authState.isPro) {
+                    saveProfileBtn.disabled = false;
+                    saveProfileBtn.textContent = 'Save Current Fields as Profile';
+                    saveProfileBtn.title = '';
+                    saveProfileBtn.style.opacity = '1';
+                    saveProfileBtn.style.cursor = 'pointer';
+                } else {
+                    saveProfileBtn.disabled = true;
+                    saveProfileBtn.textContent = 'Upgrade to Pro to save profiles';
+                    saveProfileBtn.title = 'Pro subscription required to save profiles';
+                    saveProfileBtn.style.opacity = '0.7';
+                    saveProfileBtn.style.cursor = 'not-allowed';
+                }
+            }
+        }
+        
+        // Apply profile to form fields
+        async function applyProfile(profileId) {
+            if (!currentFields.length || !currentPdfHash) {
+                setStatus('Please analyze a PDF first.', true);
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('profile_id', profileId);
+                formData.append('pdf_hash', currentPdfHash);
+                formData.append('fields_json', JSON.stringify(currentFields));
+                
+                const response = await fetch('/api/profiles/apply', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to apply profile');
+                }
+                
+                const data = await response.json();
+                const mappedData = data.mapped_data || {};
+                
+                // Fill form fields with mapped data
+                let filledCount = 0;
+                currentFields.forEach(field => {
+                    const fieldName = field.name;
+                    const input = document.getElementById(`field_${fieldName}`);
+                    if (input && mappedData[fieldName] !== undefined) {
+                        if (input.type === 'checkbox') {
+                            input.checked = mappedData[fieldName] === true || mappedData[fieldName] === 'true';
+                        } else {
+                            input.value = String(mappedData[fieldName]);
+                        }
+                        saveFieldValue(fieldName, input.value || (input.checked ? 'true' : ''));
+                        filledCount++;
+                    }
+                });
+                
+                if (filledCount > 0) {
+                    setStatus(`Applied profile: filled ${filledCount} field${filledCount !== 1 ? 's' : ''}.`, false, true);
+                } else {
+                    setStatus('Profile applied but no matching fields found.', true);
+                }
+            } catch (err) {
+                setStatus('Failed to apply profile: ' + err.message, true);
+            }
+        }
+        
+        // Save current fields as profile
+        async function saveCurrentProfile() {
+            if (!authState.authenticated) {
+                setStatus('Please sign in to save profiles.', true);
+                return;
+            }
+            
+            // Check if user is Pro
+            if (!authState.isPro) {
+                setStatus('Saving profiles requires a Pro subscription. Please upgrade to Pro.', true);
+                // Scroll to pricing section
+                const pricingSection = document.getElementById('pricing');
+                if (pricingSection) {
+                    pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+            }
+            
+            if (!currentFields.length) {
+                setStatus('Please analyze a PDF and fill some fields first.', true);
+                return;
+            }
+            
+            const profileName = prompt('Enter a name for this profile:');
+            if (!profileName || !profileName.trim()) {
+                return;
+            }
+            
+            // Collect current field values
+            const profileData = {};
+            currentFields.forEach(field => {
+                const input = document.getElementById(`field_${field.name}`);
+                if (input) {
+                    if (input.type === 'checkbox') {
+                        if (input.checked) {
+                            profileData[field.name] = true;
+                        }
+                    } else {
+                        const val = input.value.trim();
+                        if (val) {
+                            profileData[field.name] = val;
+                        }
+                    }
+                }
+            });
+            
+            if (Object.keys(profileData).length === 0) {
+                setStatus('No field values to save.', true);
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('name', profileName.trim());
+                formData.append('data', JSON.stringify(profileData));
+                
+                const response = await fetch('/api/profiles', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to save profile');
+                }
+                
+                setStatus('Profile saved successfully!', false, true);
+                await loadUserProfiles();
+            } catch (err) {
+                setStatus('Failed to save profile: ' + err.message, true);
+            }
+        }
+        
+        // Auth event listeners
+        signInBtn?.addEventListener('click', () => {
+            signInModal.classList.add('active');
+            signInEmailInput.focus();
+            signInStatus.innerHTML = '';
+        });
+        
+        closeSignInModalBtn?.addEventListener('click', () => {
+            signInModal.classList.remove('active');
+            signInStatus.innerHTML = '';
+            signInEmailInput.value = '';
+        });
+        
+        // Close modal on outside click
+        signInModal?.addEventListener('click', (e) => {
+            if (e.target === signInModal) {
+                signInModal.classList.remove('active');
+                signInStatus.innerHTML = '';
+                signInEmailInput.value = '';
+            }
+        });
+        
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && signInModal?.classList.contains('active')) {
+                signInModal.classList.remove('active');
+                signInStatus.innerHTML = '';
+                signInEmailInput.value = '';
+            }
+        });
+        
+        sendMagicLinkBtn?.addEventListener('click', async () => {
+            const email = signInEmailInput.value.trim();
+            if (!email) {
+                signInStatus.innerHTML = '<div class="login-status error">Please enter an email address.</div>';
+                return;
+            }
+            
+            // Validate email format
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailPattern.test(email)) {
+                signInStatus.innerHTML = '<div class="login-status error">Please enter a valid email address.</div>';
+                return;
+            }
+            
+            sendMagicLinkBtn.disabled = true;
+            sendMagicLinkBtn.textContent = 'Sending...';
+            signInStatus.innerHTML = '';
+            
+            try {
+                const formData = new FormData();
+                formData.append('email', email);
+                
+                const response = await fetch('/auth/send-magic-link', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let statusHtml = `<div class="login-status success">${data.message || 'Check your email for a sign-in link.'}</div>`;
+                    
+                    // Show dev link if available (dev mode or if magicLink is provided)
+                    const magicLink = data.magicLink || data.dev_link;
+                    if (magicLink && appConfig.env === 'dev') {
+                        statusHtml += `
+                            <div class="dev-link">
+                                <strong>Development mode:</strong><br>
+                                <a href="${magicLink}" target="_blank">${magicLink}</a>
+                                <button onclick="navigator.clipboard.writeText('${magicLink}')" style="margin-top: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">Copy link</button>
+                            </div>
+                        `;
+                    }
+                    
+                    signInStatus.innerHTML = statusHtml;
+                    signInEmailInput.value = '';
+                } else if (response.status === 503) {
+                    // Service Unavailable - SMTP not configured
+                    if (appConfig.env === 'prod') {
+                        signInStatus.innerHTML = '<div class="login-status error">Email delivery is not configured yet. Please contact support.</div>';
+                    } else {
+                        // In dev, still show helpful message
+                        signInStatus.innerHTML = '<div class="login-status error">Email service is not configured. Check server logs for the magic link.</div>';
+                    }
+                } else {
+                    signInStatus.innerHTML = `<div class="login-status error">${data.detail || 'Failed to send magic link. Please try again.'}</div>`;
+                }
+            } catch (err) {
+                signInStatus.innerHTML = `<div class="login-status error">Error: ${err.message}</div>`;
+            } finally {
+                sendMagicLinkBtn.disabled = false;
+                sendMagicLinkBtn.textContent = 'Send magic link';
+            }
+        });
+        
+        // Allow Enter key to submit
+        signInEmailInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !sendMagicLinkBtn.disabled) {
+                sendMagicLinkBtn.click();
+            }
+        });
+        
+        // User dropdown toggle
+        userPill?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = userDropdown.classList.contains('open');
+            if (isOpen) {
+                userDropdown.classList.remove('open');
+                userPill.classList.remove('open');
+            } else {
+                userDropdown.classList.add('open');
+                userPill.classList.add('open');
+            }
+        });
+        
+        // Close dropdown on outside click
+        document.addEventListener('click', (e) => {
+            if (userDropdown && userPill && !userDropdown.contains(e.target) && !userPill.contains(e.target)) {
+                userDropdown.classList.remove('open');
+                userPill.classList.remove('open');
+            }
+        });
+        
+        // Profiles menu item
+        profilesMenuItem?.addEventListener('click', () => {
+            const pricingSection = document.getElementById('pricing');
+            if (pricingSection) {
+                pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            userDropdown.classList.remove('open');
+            userPill.classList.remove('open');
+        });
+        
+        // Logout
+        logoutMenuItem?.addEventListener('click', async () => {
+            try {
+                await fetch('/auth/logout', { method: 'POST' });
+                authState = { authenticated: false, email: null, isPro: false };
+                updateAuthUI();
+                setStatus('Logged out successfully.', false, true);
+            } catch (err) {
+                console.error('Logout error:', err);
+                setStatus('Failed to logout. Please try again.', true);
+            }
+        });
+        
+        // Profile event listeners
+        profileSelect?.addEventListener('change', (e) => {
+            if (e.target.value) {
+                applyProfile(e.target.value);
+            }
+        });
+        
+        saveProfileBtn?.addEventListener('click', saveCurrentProfile);
+        
+        // Load app configuration
+        async function loadAppConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    appConfig = await response.json();
+                    updateUpgradeButton();
+                }
+            } catch (err) {
+                console.warn('Failed to load app config:', err);
+            }
+        }
+        
+        // Update upgrade button based on Stripe availability
+        function updateUpgradeButton() {
+            const upgradeBtn = document.getElementById('upgrade-btn');
+            const upgradeForm = document.getElementById('upgrade-form');
+            
+            if (!upgradeBtn || !upgradeForm) return;
+            
+            if (!appConfig.stripeEnabled) {
+                upgradeBtn.disabled = true;
+                upgradeBtn.textContent = 'Payments disabled in this environment';
+                upgradeBtn.title = 'Payments are not configured in this environment';
+                upgradeBtn.style.opacity = '0.7';
+                upgradeBtn.style.cursor = 'not-allowed';
+            } else {
+                upgradeBtn.disabled = false;
+                upgradeBtn.textContent = 'Upgrade to Pro';
+                upgradeBtn.title = '';
+                upgradeBtn.style.opacity = '1';
+                upgradeBtn.style.cursor = 'pointer';
+            }
+        }
+        
+        // Handle upgrade form submission
+        const upgradeForm = document.getElementById('upgrade-form');
+        upgradeForm?.addEventListener('submit', async (e) => {
+            if (!appConfig.stripeEnabled) {
+                e.preventDefault();
+                setStatus('Payments are not configured in this environment.', true);
+                return;
+            }
+            
+            // Let the form submit normally if Stripe is enabled
+        });
+        
+        // Initialize: Load config and check auth
+        (async () => {
+            await loadAppConfig();
+            await checkAuth();
+            
+            // Check for auth success/error in URL params
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('auth_success') === '1') {
+                // Re-check auth status after successful login
+                await checkAuth();
+                setStatus('Successfully signed in!', false, true);
+            } else if (urlParams.get('auth_error')) {
+                setStatus('Sign-in failed. Please try again.', true);
+            }
+        })();
+        
+        const form = document.getElementById('upload-form');
+        const statusEl = document.getElementById('status');
+        const submitBtn = document.getElementById('submit-btn');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const fieldsContainer = document.getElementById('fields-container');
+        const fieldsList = document.getElementById('fields-list');
+        const fieldsSummary = document.getElementById('fields-summary');
+        const pdfFileInput = document.getElementById('pdf_file');
+        const aiTextArea = document.getElementById('ai_text');
+        const aiExtractBtn = document.getElementById('ai-extract-btn');
+        const previewContainer = document.getElementById('preview-container');
+        const previewIframe = document.getElementById('preview-iframe');
+        const downloadBtn = document.getElementById('download-btn');
+        const editAiBtn = document.getElementById('edit-ai-btn');
+        const aiFixContainer = document.getElementById('ai-fix-container');
+        const aiFeedback = document.getElementById('ai_feedback');
+        const applyAiFixBtn = document.getElementById('apply-ai-fix-btn');
+        const previewFallback = document.getElementById('preview-fallback');
+        const previewLink = document.getElementById('preview-link');
+        const fullscreenModal = document.getElementById('fullscreen-modal');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        const fullscreenCloseBtn = document.getElementById('fullscreen-close-btn');
+        const fullscreenIframe = document.getElementById('fullscreen-iframe');
+        const mainContentGrid = document.getElementById('main-content-grid');
+        let currentFields = [];
+        let currentFileId = null;
+        let currentPdfFile = null;
+        let previewLoadTimeout = null;
+        let currentPreviewUrl = null;
+
+        // Format field name to readable label
+        function formatFieldLabel(name) {
+            return name
+                .replace(/_/g, ' ')
+                .replace(/([A-Z])/g, ' $1')
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ')
+                .trim();
+        }
+
+        // Get placeholder for common field types
+        function getPlaceholder(fieldName) {
+            const lower = fieldName.toLowerCase();
+            if (lower.includes('email')) return 'example@email.com';
+            if (lower.includes('phone') || lower.includes('tel')) return '(555) 123-4567';
+            if (lower.includes('zip') || lower.includes('postal')) return '12345';
+            if (lower.includes('date') || lower.includes('dob')) return 'MM/DD/YYYY';
+            if (lower.includes('ssn')) return 'XXX-XX-XXXX';
+            return '';
+        }
+
+        // Load saved field values from localStorage
+        function loadFieldValue(fieldName) {
+            try {
+                const saved = localStorage.getItem(`ffai_field_${fieldName}`);
+                return saved !== null ? saved : '';
+            } catch {
+                return '';
+            }
+        }
+
+        // Save field value to localStorage
+        function saveFieldValue(fieldName, value) {
+            try {
+                if (value) {
+                    localStorage.setItem(`ffai_field_${fieldName}`, value);
+                } else {
+                    localStorage.removeItem(`ffai_field_${fieldName}`);
+                }
+            } catch {}
+        }
+
+        function setStatus(message, isError = false, isSuccess = false) {
+            statusEl.textContent = message || '';
+            statusEl.className = 'helper';
+            if (isError) {
+                statusEl.classList.add('error');
+            } else if (isSuccess) {
+                statusEl.classList.add('success');
+            } else {
+                statusEl.style.color = '#64748b';
+            }
+        }
+
+        // Show query-based messages from redirects
+        const params = new URLSearchParams(window.location.search || '');
+        if (params.get('upgraded') === '1') {
+            setStatus(t('errors.upgraded'), false, true);
+        } else if (params.get('canceled') === '1') {
+            setStatus(t('errors.canceled'), true);
+        }
+
+        // Analyze PDF button
+        analyzeBtn.addEventListener('click', async () => {
+            const file = pdfFileInput.files[0];
+            if (!file) {
+                setStatus(t('errors.select_pdf_first'), true);
+                return;
+            }
+
+            setStatus(t('analyzing'));
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = t('analyzing');
+
+            const formData = new FormData();
+            formData.append('pdf_file', file);
+
+            try {
+                const response = await fetch('/fields', { method: 'POST', body: formData });
+                
+                // Read response body exactly once based on content-type
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (!response.ok) {
+                    let detail = t('errors.failed_analyze');
+                    if (contentType.includes('application/json')) {
+                        const errorData = await response.json();
+                        detail = errorData.detail || detail;
+                        // Try to translate common error messages
+                        if (errorData.detail && errorData.detail.includes('fillable form fields')) {
+                            detail = t('errors.no_form_fields');
+                        }
+                    } else {
+                        detail = await response.text();
+                    }
+                    throw new Error(detail);
+                }
+
+                const data = await response.json();
+                currentFields = data.fields || [];
+                currentPdfHash = data.pdf_hash || null;
+                
+                if (currentFields.length === 0) {
+                    setStatus(t('no_fields_found'), true);
+                    fieldsContainer.style.display = 'none';
+                    submitBtn.style.display = 'none';
+                } else {
+                    renderFields(currentFields);
+                    fieldsContainer.style.display = 'block';
+                    submitBtn.style.display = 'block';
+                    const count = currentFields.length;
+                    fieldsSummary.textContent = count === 1 ? t('fields_found', {count}) : t('fields_found_plural', {count});
+                    setStatus(count === 1 ? t('fields_found_message', {count}) : t('fields_found_message_plural', {count}), false, true);
+                }
+            } catch (err) {
+                setStatus(err.message, true);
+                fieldsContainer.style.display = 'none';
+                submitBtn.style.display = 'none';
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = t('analyze_pdf');
+            }
+        });
+
+        // AI Extract button
+        aiExtractBtn.addEventListener('click', async () => {
+            const userText = aiTextArea.value.trim();
+            if (!userText) {
+                setStatus(t('errors.enter_text_extract'), true);
+                return;
+            }
+
+            if (currentFields.length === 0) {
+                setStatus(t('errors.analyze_first'), true);
+                return;
+            }
+
+            setStatus(t('extracting'));
+            aiExtractBtn.disabled = true;
+            aiExtractBtn.textContent = t('extracting');
+
+            try {
+                // Collect current field values to pass to AI (so it doesn't overwrite)
+                const currentValues = {};
+                currentFields.forEach(field => {
+                    const input = document.getElementById(`field_${field.name}`);
+                    if (input) {
+                        if (input.type === 'checkbox') {
+                            if (input.checked) {
+                                currentValues[field.name] = true;
+                            }
+                        } else {
+                            const val = input.value.trim();
+                            if (val) {
+                                currentValues[field.name] = val;
+                            }
+                        }
+                    }
+                });
+
+                const formData = new FormData();
+                formData.append('fields_json', JSON.stringify(currentFields));
+                formData.append('user_text', userText);
+                formData.append('current_values', JSON.stringify(currentValues));
+
+                const response = await fetch('/ai-extract', { method: 'POST', body: formData });
+                
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (!response.ok) {
+                    let detail = t('errors.ai_extraction_failed');
+                    if (contentType.includes('application/json')) {
+                        const errorData = await response.json();
+                        detail = errorData.detail || detail;
+                    } else {
+                        detail = await response.text();
+                    }
+                    throw new Error(detail);
+                }
+
+                const data = await response.json();
+                const extracted = data.extracted || {};
+                
+                // Fill only empty fields with extracted values (AI won't overwrite)
+                let filledCount = 0;
+                currentFields.forEach(field => {
+                    const fieldName = field.name;
+                    const input = document.getElementById(`field_${field.name}`);
+                    if (input && extracted[fieldName] !== undefined && extracted[fieldName] !== null && extracted[fieldName] !== '') {
+                        // Only fill if field is currently empty
+                        const isEmpty = input.type === 'checkbox' ? !input.checked : !input.value.trim();
+                        if (isEmpty) {
+                            if (input.type === 'checkbox') {
+                                input.checked = extracted[fieldName] === true || extracted[fieldName] === 'true';
+                            } else {
+                                input.value = String(extracted[fieldName]);
+                            }
+                            saveFieldValue(fieldName, input.value || (input.checked ? 'true' : ''));
+                            filledCount++;
+                        }
+                    }
+                });
+
+                if (filledCount > 0) {
+                    const msg = filledCount === 1 ? t('errors.ai_filled_count', {count: filledCount}) : t('errors.ai_filled_count_plural', {count: filledCount});
+                    setStatus(msg, false, true);
+                } else {
+                    setStatus(t('errors.ai_could_not_extract'), true);
+                }
+            } catch (err) {
+                setStatus(err.message, true);
+            } finally {
+                aiExtractBtn.disabled = false;
+                aiExtractBtn.textContent = t('auto_fill_ai');
+            }
+        });
+
+        function renderFields(fields) {
+            fieldsList.innerHTML = '';
+            fields.forEach(field => {
+                const fieldGroup = document.createElement('div');
+                fieldGroup.className = 'field-group';
+                
+                const label = document.createElement('label');
+                const labelText = formatFieldLabel(field.name);
+                label.textContent = labelText;
+                
+                let input;
+                const savedValue = loadFieldValue(field.name);
+                const value = field.value || savedValue || '';
+                const placeholder = getPlaceholder(field.name);
+
+                if (field.type === 'checkbox') {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = `field_${field.name}`;
+                    checkbox.name = field.name;
+                    checkbox.checked = value === true || value === 'true' || value === true;
+                    checkbox.addEventListener('change', (e) => {
+                        saveFieldValue(field.name, e.target.checked ? 'true' : '');
+                    });
+                    label.insertBefore(checkbox, label.firstChild);
+                    fieldGroup.appendChild(label);
+                } else if (field.type === 'choice' && field.options && field.options.length > 0) {
+                    const select = document.createElement('select');
+                    select.id = `field_${field.name}`;
+                    select.name = field.name;
+                    const emptyOption = document.createElement('option');
+                    emptyOption.value = '';
+                    emptyOption.textContent = '-- Select --';
+                    const emptyOptionText = t('select');
+                    emptyOption.textContent = emptyOptionText;
+                    select.appendChild(emptyOption);
+                    field.options.forEach(opt => {
+                        const option = document.createElement('option');
+                        option.value = opt;
+                        option.textContent = opt;
+                        if (opt === value) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                    select.addEventListener('change', (e) => {
+                        saveFieldValue(field.name, e.target.value);
+                    });
+                    label.appendChild(select);
+                    fieldGroup.appendChild(label);
+                } else {
+                    input = document.createElement('input');
+                    input.type = 'text';
+                    input.id = `field_${field.name}`;
+                    input.name = field.name;
+                    input.value = value;
+                    if (placeholder) {
+                        input.placeholder = placeholder;
+                    }
+                    input.addEventListener('input', (e) => {
+                        saveFieldValue(field.name, e.target.value);
+                    });
+                    label.appendChild(input);
+                    fieldGroup.appendChild(label);
+                }
+                
+                fieldsList.appendChild(fieldGroup);
+            });
+        }
+
+        // Store PDF file for AI corrections
+        pdfFileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                currentPdfFile = e.target.files[0];
+                // Clear previous preview and hash when new file selected
+                currentPdfHash = null;
+                currentFileId = null;
+                previewContainer.style.display = 'none';
+                mainContentGrid.classList.remove('has-preview');
+            }
+        });
+
+        // Download button
+        downloadBtn.addEventListener('click', () => {
+            if (currentFileId) {
+                window.open(`/download/${currentFileId}`, '_blank');
+            }
+        });
+
+        // Fullscreen functionality
+        fullscreenBtn.addEventListener('click', () => {
+            if (currentPreviewUrl) {
+                fullscreenIframe.src = currentPreviewUrl;
+                fullscreenModal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
+        });
+
+        fullscreenCloseBtn.addEventListener('click', () => {
+            fullscreenModal.classList.remove('active');
+            document.body.style.overflow = '';
+            fullscreenIframe.src = '';
+        });
+
+        // Close fullscreen on ESC key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && fullscreenModal.classList.contains('active')) {
+                fullscreenModal.classList.remove('active');
+                document.body.style.overflow = '';
+                fullscreenIframe.src = '';
+            }
+        });
+
+        // Edit with AI button
+        editAiBtn.addEventListener('click', () => {
+            aiFixContainer.style.display = aiFixContainer.style.display === 'none' ? 'block' : 'none';
+        });
+
+        // Apply AI Fix button
+        applyAiFixBtn.addEventListener('click', async () => {
+            const feedback = aiFeedback.value.trim();
+            if (!feedback) {
+                setStatus(t('errors.provide_feedback'), true);
+                return;
+            }
+
+            if (!currentFileId) {
+                setStatus(t('errors.no_preview'), true);
+                return;
+            }
+
+            setStatus(t('processing'));
+            applyAiFixBtn.disabled = true;
+            applyAiFixBtn.innerHTML = `<span class="spinner"></span> ${t('processing')}`;
+
+            try {
+                // Collect current field values
+                const currentValues = {};
+                currentFields.forEach(field => {
+                    const input = document.getElementById(`field_${field.name}`);
+                    if (input) {
+                        if (input.type === 'checkbox') {
+                            currentValues[field.name] = input.checked;
+                        } else {
+                            const val = input.value.trim();
+                            if (val) {
+                                currentValues[field.name] = val;
+                            }
+                        }
+                    }
+                });
+
+                const formData = new FormData();
+                formData.append('file_id', currentFileId);
+                formData.append('fields_json', JSON.stringify(currentFields));
+                formData.append('current_values', JSON.stringify(currentValues));
+                formData.append('feedback', feedback);
+
+                const response = await fetch('/ai-fix', { method: 'POST', body: formData });
+                
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (!response.ok) {
+                    let detail = 'AI correction failed.';
+                    if (contentType.includes('application/json')) {
+                        const errorData = await response.json();
+                        detail = errorData.detail || detail;
+                    } else {
+                        detail = await response.text();
+                    }
+                    throw new Error(detail);
+                }
+
+                const data = await response.json();
+                console.log('AI fix success:', data);
+                
+                if (data.success) {
+                    // Update form inputs with corrected values by fetching the updated field values
+                    // We'll need to re-analyze or get updated values, but for now just refresh preview
+                    // The form inputs will be updated when user makes another AI fix or manually edits
+                    
+                    // Refresh preview with cache-busting
+                    currentPreviewUrl = `${data.preview_url}?t=${Date.now()}`;
+                    console.log('Refreshing preview iframe:', currentPreviewUrl);
+                    previewIframe.src = currentPreviewUrl;
+                    aiFeedback.value = '';
+                    aiFixContainer.style.display = 'none';
+                    setStatus(`AI updated ${data.updated_fields.length} field${data.updated_fields.length !== 1 ? 's' : ''}. Preview refreshed.`, false, true);
+                    
+                    // Scroll to preview to show the update
+                    previewContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    throw new Error('AI correction failed.');
+                }
+            } catch (err) {
+                setStatus(err.message, true);
+            } finally {
+                applyAiFixBtn.disabled = false;
+                applyAiFixBtn.textContent = t('apply_ai_fix');
+            }
+        });
+
+        // Form submission
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            setStatus(t('processing'));
+            submitBtn.disabled = true;
+            submitBtn.textContent = t('processing');
+
+            const formData = new FormData(form);
+            
+            // Collect field values from generated form
+            const fieldsData = {};
+            currentFields.forEach(field => {
+                const input = document.getElementById(`field_${field.name}`);
+                if (input) {
+                    if (input.type === 'checkbox') {
+                        fieldsData[field.name] = input.checked;
+                    } else {
+                        const val = input.value.trim();
+                        if (val) {
+                            fieldsData[field.name] = val;
+                        }
+                    }
+                }
+            });
+            
+            // Add fields_json if we have field data
+            if (Object.keys(fieldsData).length > 0) {
+                formData.append('fields_json', JSON.stringify(fieldsData));
+            }
+            
+            try {
+                const response = await fetch('/fill', { method: 'POST', body: formData });
+                
+                // Read response body exactly once based on content-type
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (!response.ok) {
+                    let detail = t('errors.something_wrong');
+                    if (contentType.includes('application/json')) {
+                        const errorData = await response.json();
+                        detail = errorData.detail || detail;
+                        // Translate common errors
+                        if (errorData.detail) {
+                            if (errorData.detail.includes('Daily free limit')) {
+                                detail = t('errors.daily_limit_reached');
+                            } else if (errorData.detail.includes('No form field values')) {
+                                detail = t('errors.no_field_values');
+                            }
+                        }
+                    } else {
+                        detail = await response.text();
+                    }
+                    throw new Error(detail);
+                }
+                
+                // Expect JSON response with preview_url
+                const data = await response.json();
+                console.log('Fill success:', { file_id: data.file_id, preview_url: data.preview_url });
+                
+                if (data.preview_url && data.file_id) {
+                    currentFileId = data.file_id;
+                    if (data.pdf_hash) {
+                        currentPdfHash = data.pdf_hash;
+                    }
+                    // Use cache-busting query param to ensure fresh load
+                    currentPreviewUrl = `${data.preview_url}?t=${Date.now()}`;
+                    console.log('Setting preview iframe src:', currentPreviewUrl);
+                    
+                    // Set up fallback link
+                    previewLink.href = data.preview_url;
+                    previewFallback.style.display = 'none';
+                    
+                    // Handle iframe load/error events
+                    previewIframe.onload = () => {
+                        console.log('Preview iframe loaded successfully');
+                        if (previewLoadTimeout) {
+                            clearTimeout(previewLoadTimeout);
+                            previewLoadTimeout = null;
+                        }
+                        previewFallback.style.display = 'none';
+                    };
+                    previewIframe.onerror = () => {
+                        console.error('Preview iframe failed to load');
+                        previewFallback.style.display = 'block';
+                    };
+                    
+                    // Set timeout to show fallback if iframe doesn't load
+                    previewLoadTimeout = setTimeout(() => {
+                        console.warn('Preview iframe load timeout, showing fallback');
+                        previewFallback.style.display = 'block';
+                    }, 5000);
+                    
+                    previewIframe.src = currentPreviewUrl;
+                    previewContainer.style.display = 'block';
+                    previewContainer.setAttribute('data-has-preview', 'true');
+                    mainContentGrid.classList.add('has-preview');
+                    aiFixContainer.style.display = 'none';
+                    
+                    // Scroll to preview on mobile/tablet
+                    if (window.innerWidth < 1024) {
+                        previewContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                    setStatus(t('errors.fill_success'), false, true);
+                } else {
+                    throw new Error(t('errors.invalid_response'));
+                }
+            } catch (err) {
+                setStatus(err.message, true);
+                previewContainer.style.display = 'none';
+                previewContainer.removeAttribute('data-has-preview');
+                mainContentGrid.classList.remove('has-preview');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = t('fill_my_form');
+            }
+        });
+    </script>
+</body>
+</html>
