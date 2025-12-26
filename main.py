@@ -2192,33 +2192,41 @@ async def health() -> Dict[str, Any]:
 
 @app.get("/debug/email")
 async def debug_email(request: Request) -> JSONResponse:
-    """Debug endpoint for SMTP configuration (production-safe).
+    """Debug endpoint for email configuration (production-safe).
     
-    Returns SMTP configuration status, PUBLIC_BASE_URL, and environment info.
+    Returns Resend API and SMTP configuration status, PUBLIC_BASE_URL, and environment info.
     Does NOT leak secrets - only shows booleans and parsed port.
     """
-    # Get SMTP config using shared function
-    smtp_config = get_smtp_config()
+    # Get unified email config
+    email_config = get_email_config()
     
     # Check if FROM is in angle bracket format (e.g., "Name <email@domain.com>")
     from_is_angle_format = False
-    if smtp_config["from_raw"] and "<" in smtp_config["from_raw"] and ">" in smtp_config["from_raw"]:
+    if email_config["from_raw"] and "<" in email_config["from_raw"] and ">" in email_config["from_raw"]:
         from_is_angle_format = True
     
     # Get PUBLIC_BASE_URL
     public_base_url_value = get_env("PUBLIC_BASE_URL")
     public_base_url_present = bool(public_base_url_value)
     
+    smtp_config = email_config["smtp_config"]
+    
     return JSONResponse({
+        "resend": {
+            "present": email_config["resend_configured"]
+        },
         "smtp": {
+            "present": email_config["smtp_configured"],
             "host_present": smtp_config["host_present"],
             "user_present": smtp_config["user_present"],
             "pass_present": smtp_config["pass_present"],
             "from_present": smtp_config["from_present"],
             "port_value": smtp_config["port"],
-            "from_is_angle_format": from_is_angle_format,
-            "configured": smtp_config["configured"],
             "missing_keys": smtp_config["missing_keys"]
+        },
+        "from": {
+            "is_angle_format": from_is_angle_format,
+            "present": bool(email_config["from_email"])
         },
         "public_base_url_present": public_base_url_present,
         "public_base_url_value": public_base_url_value,
