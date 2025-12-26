@@ -708,12 +708,14 @@ async def startup_event() -> None:
         logger.error("Database backend not initialized")
         raise RuntimeError("Database backend initialization failed")
     
-    # Log PUBLIC_BASE_URL configuration
-    public_base_url = os.getenv("PUBLIC_BASE_URL")
-    if public_base_url:
-        logger.info("PUBLIC_BASE_URL: set")
-    else:
-        logger.info("PUBLIC_BASE_URL: not set (will use request.base_url)")
+    # Log email configuration (Resend API + SMTP)
+    email_config = get_email_config()
+    resend_api_key_present = email_config["resend_configured"]
+    smtp_configured = email_config["smtp_configured"]
+    public_base_url_present = bool(os.getenv("PUBLIC_BASE_URL"))
+    
+    logger.info("Email configuration: RESEND_API_KEY=%s SMTP_configured=%s PUBLIC_BASE_URL=%s DB_backend=%s",
+                resend_api_key_present, smtp_configured, public_base_url_present, db_backend)
     
     asyncio.create_task(periodic_cleanup())
     if STRIPE_SECRET_KEY:
@@ -721,50 +723,6 @@ async def startup_event() -> None:
         logger.info("Stripe API key configured.")
     else:
         logger.info("Stripe not configured; upgrade-to-pro will be disabled.")
-    
-    # Log SMTP configuration status (booleans only, never values)
-    # Check all possible naming variants
-    smtp_host_set = bool(SMTP_HOST)
-    smtp_port_set = bool(SMTP_PORT)
-    smtp_user_set = bool(SMTP_USER)
-    smtp_user_alt_set = bool(os.getenv("SMTP_USERNAME"))
-    smtp_pass_set = bool(SMTP_PASS)
-    smtp_pass_alt_set = bool(os.getenv("SMTP_PASSWORD"))
-    smtp_from_set = bool(SMTP_FROM)
-    smtp_from_alt_set = bool(os.getenv("EMAIL_FROM"))
-    smtp_from_raw_set = bool(SMTP_FROM_RAW)
-    
-    smtp_configured = all([smtp_host_set, smtp_user_set, smtp_pass_set, smtp_from_set])
-    
-    # Log chosen from_email string length (not the value)
-    from_email_length = len(SMTP_FROM) if SMTP_FROM else 0
-    
-    # Detect Resend sandbox limitation
-    resend_sandbox_warning = False
-    if smtp_configured and SMTP_HOST and "resend.com" in SMTP_HOST.lower():
-        # Check if FROM email domain is resend.dev (sandbox) or not a verified custom domain
-        if SMTP_FROM:
-            from_domain = SMTP_FROM.split("@")[-1].lower() if "@" in SMTP_FROM else ""
-            if from_domain == "resend.dev":
-                resend_sandbox_warning = True
-                logger.warning("Resend sandbox detected: SMTP_FROM domain is 'resend.dev'. "
-                             "Resend may only deliver to test emails (owner email / delivered@resend.dev) "
-                             "until a custom domain is verified. Magic links will be logged for other recipients.")
-    
-    # Log PUBLIC_BASE_URL status
-    public_base_url_set = bool(os.getenv("PUBLIC_BASE_URL"))
-    
-    logger.info("SMTP configuration: HOST=%s PORT=%s USER=%s USERNAME=%s PASS=%s PASSWORD=%s FROM=%s EMAIL_FROM=%s FROM_LENGTH=%d",
-                smtp_host_set, smtp_port_set, smtp_user_set, smtp_user_alt_set, 
-                smtp_pass_set, smtp_pass_alt_set, smtp_from_set, smtp_from_alt_set, from_email_length)
-    logger.info("PUBLIC_BASE_URL: %s", "set" if public_base_url_set else "not set")
-    if smtp_configured:
-        if resend_sandbox_warning:
-            logger.warning("SMTP configured (Resend sandbox): email delivery may be limited to test emails")
-        else:
-            logger.info("SMTP configured: email delivery enabled")
-    else:
-        logger.info("SMTP not configured: email delivery disabled (missing required variables)")
     
     logger.info("FormFillAI startup complete; temp dir: %s", TMP_DIR)
 
@@ -902,14 +860,14 @@ async def extract_fields(
                 filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
-        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-        pdf_bytes = await read_upload_file(pdf_file)
+    pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
@@ -925,10 +883,10 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-        
-        try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -952,14 +910,14 @@ async def extract_fields(
                     "size": file_size
                 }
             })
-        except HTTPException:
-            raise
-        except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -1629,6 +1587,69 @@ async def ai_fix_pdf(
         raise HTTPException(status_code=500, detail="AI correction failed. Please try again.")
 
 
+async def send_email_via_resend_api(to_email: str, subject: str, html: str, from_email: str, from_raw: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    """Send email via Resend HTTP API.
+    
+    Args:
+        to_email: Recipient email address
+        subject: Email subject
+        html: Email body (HTML)
+        from_email: From email address (parsed)
+        from_raw: Optional raw FROM string (supports "Name <email>")
+    
+    Returns:
+        Tuple[bool, Optional[str]]: (success, error_message)
+        - If successful: (True, None)
+        - If failed: (False, safe_error_message)
+    """
+    import httpx
+    
+    resend_api_key = get_env("RESEND_API_KEY")
+    if not resend_api_key:
+        return (False, "RESEND_API_KEY not configured")
+    
+    # Use from_raw if available (supports "Name <email>"), otherwise use from_email
+    from_address = from_raw if from_raw else from_email
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": from_address,
+                    "to": to_email,
+                    "subject": subject,
+                    "html": html
+                }
+            )
+            
+            if response.status_code == 200:
+                logger.info("Email sent via Resend API to %s", to_email)
+                return (True, None)
+            else:
+                # Log status code only (no secrets)
+                error_detail = f"Resend API error: status {response.status_code}"
+                try:
+                    error_data = response.json()
+                    if "message" in error_data:
+                        error_detail = f"Resend API error: {error_data['message'][:100]}"
+                except:
+                    pass
+                logger.error("Resend API send failed: status=%d", response.status_code)
+                return (False, error_detail)
+                
+    except httpx.TimeoutException:
+        logger.error("Resend API timeout")
+        return (False, "Resend API timeout")
+    except Exception as e:
+        logger.error("Resend API error: %s", e)
+        return (False, f"Resend API error: {str(e)[:100]}")
+
+
 async def send_email_via_smtp(to_email: str, subject: str, body: str, smtp_config: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[str]]:
     """Send email via SMTP with retry logic. 
     
@@ -1865,27 +1886,40 @@ async def send_magic_link(request: Request) -> JSONResponse:
         # Try Resend API first (primary method)
         email_sent = False
         error_msg = None
+        method_used = "none"
+        
         if resend_configured:
-            email_sent, error_msg = await send_email_via_resend(
+            method_used = "resend_api"
+            email_sent, error_msg = await send_email_via_resend_api(
                 to_email=email,
                 subject=email_subject,
-                body=email_body,
+                html=email_body,
                 from_email=from_email,
                 from_raw=from_raw
             )
             if email_sent:
-                logger.info("Email sent via Resend API to %s", email)
+                logger.info("POST /auth/send-magic-link: method=resend_api success email=%s", email)
                 return JSONResponse({
                     "ok": True,
                     "success": True,
                     "message": "Magic link sent to your email."
                 })
             else:
-                logger.warning("Resend API send failed for %s: %s", email, error_msg)
+                # Extract safe error type
+                error_type = "unknown"
+                if error_msg:
+                    if "timeout" in error_msg.lower():
+                        error_type = "timeout"
+                    elif "status" in error_msg.lower():
+                        error_type = "api_error"
+                    else:
+                        error_type = "connection_error"
+                logger.warning("POST /auth/send-magic-link: method=resend_api failed email=%s error_type=%s", email, error_type)
                 # Fall through to SMTP fallback
         
         # Fallback to SMTP if Resend failed or not configured
         if not email_sent and smtp_configured:
+            method_used = "smtp"
             email_sent, error_msg = await send_email_via_smtp(
                 to_email=email,
                 subject=email_subject,
@@ -1893,21 +1927,34 @@ async def send_magic_link(request: Request) -> JSONResponse:
                 smtp_config=smtp_config
             )
             if email_sent:
-                logger.info("Email sent via SMTP to %s", email)
+                logger.info("POST /auth/send-magic-link: method=smtp success email=%s", email)
                 return JSONResponse({
                     "ok": True,
                     "success": True,
                     "message": "Magic link sent to your email."
                 })
             else:
-                logger.warning("SMTP send failed for %s: %s", email, error_msg)
+                # Extract safe error type
+                error_type = "unknown"
+                if error_msg:
+                    if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                        error_type = "timeout"
+                    elif "connection" in error_msg.lower():
+                        error_type = "connection_error"
+                    else:
+                        error_type = "smtp_error"
+                logger.warning("POST /auth/send-magic-link: method=smtp failed email=%s error_type=%s", email, error_type)
         
         # Both methods failed or not configured
         # Always log full magic link when email send fails (for Railway logs debugging)
         logger.info("MAGIC_LINK: %s", magic_link)
         
+        # Store token for debug endpoint (when sending fails)
+        # The token is already in the database, so we just need to ensure it's accessible
+        
         if not resend_configured and not smtp_configured:
             # No email service configured
+            logger.warning("POST /auth/send-magic-link: method=none email=%s reason=not_configured", email)
             return JSONResponse(
                 status_code=503,
                 content={"ok": False, "detail": "Email service is not configured. Please configure RESEND_API_KEY or SMTP settings."}
@@ -1915,6 +1962,7 @@ async def send_magic_link(request: Request) -> JSONResponse:
         else:
             # Email service configured but sending failed
             safe_error = error_msg[:200] if error_msg else "Failed to send email"
+            logger.error("POST /auth/send-magic-link: method=%s failed email=%s detail=%s", method_used, email, safe_error)
             return JSONResponse(
                 status_code=503,
                 content={"ok": False, "detail": safe_error}
@@ -2242,8 +2290,7 @@ async def debug_email(request: Request) -> JSONResponse:
 async def debug_last_magic_link(request: Request, email: Optional[str] = None) -> JSONResponse:
     """Secure debug endpoint to get last generated magic link for an email.
     
-    Protected by X-Debug-Key header matching DEBUG_KEY environment variable.
-    Only enabled when DEBUG_KEY is set.
+    Enabled when DEBUG=1 OR when X-Debug-Key header matches DEBUG_KEY environment variable.
     
     Args:
         email: Email address to look up the latest unexpired magic token for.
@@ -2252,15 +2299,18 @@ async def debug_last_magic_link(request: Request, email: Optional[str] = None) -
         {ok:true, magic_link:"https://.../auth/verify?token=..."} for most recent unexpired token
         {ok:false, detail:"not found"} if none
     """
-    # Check DEBUG_KEY is set
+    # Check if enabled: DEBUG=1 OR DEBUG_KEY is set
     debug_key = get_env("DEBUG_KEY")
-    if not debug_key:
+    is_debug_mode = DEBUG or bool(debug_key)
+    
+    if not is_debug_mode:
         raise HTTPException(status_code=404, detail="Not found")
     
-    # Verify X-Debug-Key header
-    provided_key = request.headers.get("X-Debug-Key", "")
-    if not provided_key or provided_key != debug_key:
-        raise HTTPException(status_code=403, detail="Invalid debug key")
+    # If DEBUG_KEY is set, require X-Debug-Key header
+    if debug_key:
+        provided_key = request.headers.get("X-Debug-Key", "")
+        if not provided_key or provided_key != debug_key:
+            raise HTTPException(status_code=403, detail="Invalid debug key")
     
     # Email is required
     if not email:
