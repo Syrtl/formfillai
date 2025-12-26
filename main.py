@@ -1778,11 +1778,14 @@ async def health() -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    # Read PORT from environment (Railway provides this)
+    # Read PORT from environment (Railway provides this as an environment variable)
     # Default to 8000 for local development
+    # NOTE: Railway sets PORT as an env var, not a shell variable
+    # This is why we read it here in Python, not via uvicorn CLI --port $PORT
     port = int(os.environ.get("PORT", 8000))
     
     # Start uvicorn programmatically
+    # This ensures PORT is read as an integer, not a string
     uvicorn.run(
         app,
         host="0.0.0.0",

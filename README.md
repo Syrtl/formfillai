@@ -19,11 +19,28 @@ pip install -r requirements.txt
 ```
 
 ## Run
+
+### Local Development
 ```bash
+# Using uvicorn directly (for development with auto-reload)
 uvicorn main:app --reload
+
+# Or using Python directly (same as production)
+python main.py
 ```
 
 Then open http://127.0.0.1:8000 to use the upload page.
+
+### Railway Deployment
+
+**IMPORTANT:** When deploying to Railway, you must set the Start Command to:
+```
+python main.py
+```
+
+Do NOT use `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers` as this will fail with "Invalid value for '--port': '$PORT' is not a valid integer".
+
+See `RAILWAY_DEPLOYMENT.md` for complete deployment instructions.
 
 ## API
 - `GET /` — Minimal HTML form to upload a PDF and JSON file.

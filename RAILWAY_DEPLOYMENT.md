@@ -26,15 +26,28 @@ If Railway shows "No repositories found":
 
 ### 3. Railway Configuration
 
-Railway will automatically:
-- Detect Python from `requirements.txt`
-- Use the `Procfile` for the start command
-- Set the `$PORT` environment variable automatically
+**IMPORTANT: Start Command Configuration**
 
-The service will start with:
-```bash
-uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers
-```
+Railway may cache an old Start Command. You **MUST** manually set the Start Command in Railway:
+
+1. In your Railway project, go to **Settings** → **Service**
+2. Find **"Start Command"** or **"Deploy"** settings
+3. Set the Start Command to: `python main.py`
+4. **DO NOT** use: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers` (this will fail)
+
+**Why?**
+- Railway provides `PORT` as an environment variable
+- The uvicorn CLI cannot parse `$PORT` directly (it's a shell variable, not an integer)
+- `main.py` reads `PORT` from `os.environ` and converts it to an integer
+- This ensures the app works on Railway and locally
+
+**Procfile:**
+The `Procfile` contains `web: python main.py`, but Railway's Start Command setting takes precedence. Always verify the Start Command in Railway settings.
+
+**What Railway does automatically:**
+- Detects Python from `requirements.txt`
+- Sets the `PORT` environment variable automatically
+- The app reads `PORT` and starts uvicorn programmatically
 
 ### 4. Environment Variables
 
@@ -122,7 +135,22 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ## Troubleshooting
 
-### App won't start
+### App won't start / "Invalid value for '--port': '$PORT' is not a valid integer"
+
+**This error means Railway is using the wrong Start Command.**
+
+1. Go to Railway project → **Settings** → **Service**
+2. Find **"Start Command"** or **"Deploy"** section
+3. **Delete any existing Start Command** or set it to: `python main.py`
+4. **DO NOT** use: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers`
+5. Save and redeploy
+
+**Why this happens:**
+- Railway may cache an old Start Command from previous deployments
+- The uvicorn CLI cannot parse `$PORT` (it's a shell variable, not an integer)
+- `main.py` reads `PORT` from `os.environ` and converts it to an integer correctly
+
+### App won't start (other issues)
 - Check Railway logs for errors
 - Verify all required environment variables are set
 - Ensure `requirements.txt` is correct
