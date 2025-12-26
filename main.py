@@ -555,12 +555,20 @@ async def startup_event() -> None:
     else:
         logger.info("Stripe not configured; upgrade-to-pro will be disabled.")
     
-    # Log SMTP configuration status
-    smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
+    # Log SMTP configuration status (booleans only, never values)
+    smtp_host_set = bool(SMTP_HOST)
+    smtp_port_set = bool(SMTP_PORT)
+    smtp_user_set = bool(SMTP_USER)
+    smtp_pass_set = bool(SMTP_PASS)
+    smtp_from_set = bool(SMTP_FROM)
+    smtp_configured = all([smtp_host_set, smtp_user_set, smtp_pass_set, smtp_from_set])
+    
+    logger.info("SMTP configuration: HOST=%s PORT=%s USER=%s PASS=%s FROM=%s",
+                smtp_host_set, smtp_port_set, smtp_user_set, smtp_pass_set, smtp_from_set)
     if smtp_configured:
         logger.info("SMTP configured: email delivery enabled")
     else:
-        logger.info("SMTP not configured: email delivery disabled")
+        logger.info("SMTP not configured: email delivery disabled (missing required variables)")
     
     logger.info("FormFillAI startup complete; temp dir: %s", TMP_DIR)
 
@@ -652,25 +660,68 @@ async def set_language(request: Request, lang: str = Form(...)) -> JSONResponse:
 
 
 @app.post("/fields")
-async def extract_fields(pdf_file: UploadFile = File(...)) -> JSONResponse:
+async def extract_fields(
+    request: Request,
+    pdf_file: UploadFile = File(...)
+) -> JSONResponse:
     """Extract form fields from a fillable PDF."""
-    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
-    pdf_bytes = await read_upload_file(pdf_file)
+    # Get user info for logging (if available)
+    user = await get_current_user_async(request)
+    user_id = user.get("id") if user else None
+    user_email = user.get("email") if user else None
     
-    # Compute PDF hash for mapping cache
-    pdf_hash = db.compute_pdf_hash(pdf_bytes)
+    # Log analyze request
+    filename = pdf_file.filename or "unknown"
+    logger.info("Analyze PDF request: filename=%s user_id=%s user_email=%s", 
+                filename, user_id, user_email)
     
     try:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        fields_metadata = extract_field_metadata(reader)
-        return JSONResponse({"fields": fields_metadata, "pdf_hash": pdf_hash})
+        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    except HTTPException as e:
+        logger.warning("Analyze PDF failed: invalid file type filename=%s user_id=%s error=%s",
+                      filename, user_id, e.detail)
+        raise
+    
+    try:
+        pdf_bytes = await read_upload_file(pdf_file)
+        file_size = len(pdf_bytes)
+        logger.info("Analyze PDF: filename=%s size=%d bytes user_id=%s", 
+                    filename, file_size, user_id)
+        
+        # Check file size (10MB limit)
+        if file_size > MAX_UPLOAD_SIZE:
+            logger.warning("Analyze PDF failed: file too large filename=%s size=%d user_id=%s",
+                          filename, file_size, user_id)
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024 * 1024)}MB."
+            )
+        
+        # Compute PDF hash for mapping cache
+        pdf_hash = db.compute_pdf_hash(pdf_bytes)
+        
+        try:
+            reader = PdfReader(BytesIO(pdf_bytes))
+            fields_metadata = extract_field_metadata(reader)
+            field_count = len(fields_metadata)
+            logger.info("Analyze PDF success: filename=%s fields=%d user_id=%s",
+                       filename, field_count, user_id)
+            return JSONResponse({"fields": fields_metadata, "pdf_hash": pdf_hash})
+        except Exception as exc:
+            logger.warning("Analyze PDF failed: invalid PDF filename=%s user_id=%s error=%s",
+                          filename, user_id, str(exc))
+            raise HTTPException(
+                status_code=422,
+                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            )
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("Error extracting fields: %s", exc)
+        logger.error("Analyze PDF error: filename=%s user_id=%s error=%s",
+                    filename, user_id, str(exc), exc_info=True)
         raise HTTPException(
-            status_code=400,
-            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            status_code=500,
+            detail="An error occurred while analyzing the PDF. Please try again."
         )
 
 
