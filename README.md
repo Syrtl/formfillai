@@ -33,12 +33,10 @@ Then open http://127.0.0.1:8000 to use the upload page.
 
 ### Railway Deployment
 
-**IMPORTANT:** When deploying to Railway, you must set the Start Command to:
-```
-python main.py
-```
-
-Do NOT use `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers` as this will fail with "Invalid value for '--port': '$PORT' is not a valid integer".
+The repository is configured to work automatically on Railway:
+- `Procfile` and `nixpacks.toml` pin the correct start command
+- The start command uses shell expansion to correctly handle Railway's `PORT` variable
+- **Do NOT** manually set a Start Command in Railway UI (it may override the pinned command)
 
 See `RAILWAY_DEPLOYMENT.md` for complete deployment instructions.
 

@@ -26,28 +26,33 @@ If Railway shows "No repositories found":
 
 ### 3. Railway Configuration
 
-**IMPORTANT: Start Command Configuration**
+**IMPORTANT: Start Command is Auto-Configured**
 
-Railway may cache an old Start Command. You **MUST** manually set the Start Command in Railway:
+The repository pins the correct start command via:
+- `Procfile` - Contains the web process command
+- `nixpacks.toml` - Hard-pins the start command (prevents Railway from overriding)
+- `railway.json` - Railway-specific configuration
 
-1. In your Railway project, go to **Settings** → **Service**
-2. Find **"Start Command"** or **"Deploy"** settings
-3. Set the Start Command to: `python main.py`
-4. **DO NOT** use: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers` (this will fail)
+**Start Command:**
+```
+sh -c 'uvicorn main:app --host 0.0.0.0 --port "$PORT" --proxy-headers'
+```
 
-**Why?**
+**Why this works:**
 - Railway provides `PORT` as an environment variable
-- The uvicorn CLI cannot parse `$PORT` directly (it's a shell variable, not an integer)
-- `main.py` reads `PORT` from `os.environ` and converts it to an integer
-- This ensures the app works on Railway and locally
+- The `sh -c` wrapper expands `$PORT` to the actual port number before passing it to uvicorn
+- This ensures uvicorn receives an integer, not the literal string `$PORT`
 
-**Procfile:**
-The `Procfile` contains `web: python main.py`, but Railway's Start Command setting takes precedence. Always verify the Start Command in Railway settings.
+**Railway UI Note:**
+- Railway's UI may show an auto-generated uvicorn command in the Start Command field
+- **DO NOT** manually set or override the Start Command in Railway UI
+- The repository configuration files (`Procfile`, `nixpacks.toml`, `railway.json`) ensure the correct command is used
+- If you see a different command in Railway UI, it's just a display issue - the pinned command will be used
 
 **What Railway does automatically:**
 - Detects Python from `requirements.txt`
 - Sets the `PORT` environment variable automatically
-- The app reads `PORT` and starts uvicorn programmatically
+- Uses the start command from `nixpacks.toml` or `Procfile`
 
 ### 4. Environment Variables
 
@@ -137,18 +142,22 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ### App won't start / "Invalid value for '--port': '$PORT' is not a valid integer"
 
-**This error means Railway is using the wrong Start Command.**
+**This error means Railway is using a start command that doesn't expand $PORT.**
 
-1. Go to Railway project → **Settings** → **Service**
-2. Find **"Start Command"** or **"Deploy"** section
-3. **Delete any existing Start Command** or set it to: `python main.py`
-4. **DO NOT** use: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers`
-5. Save and redeploy
+**Solution:**
+1. Ensure your repository has the latest code (with `nixpacks.toml` and updated `Procfile`)
+2. Redeploy on Railway - the pinned start command will be used
+3. **DO NOT** manually set a Start Command in Railway UI (it may override the pinned command)
 
 **Why this happens:**
-- Railway may cache an old Start Command from previous deployments
-- The uvicorn CLI cannot parse `$PORT` (it's a shell variable, not an integer)
-- `main.py` reads `PORT` from `os.environ` and converts it to an integer correctly
+- Railway may auto-generate a start command that doesn't expand `$PORT`
+- The uvicorn CLI receives the literal string `$PORT` instead of the port number
+- The repository now pins the correct command via `nixpacks.toml` and `Procfile` using `sh -c` to expand `$PORT`
+
+**If the error persists:**
+- Check that `nixpacks.toml` exists in your repository
+- Verify `Procfile` contains: `web: sh -c 'uvicorn main:app --host 0.0.0.0 --port "$PORT" --proxy-headers'`
+- Clear any manually set Start Command in Railway UI (Settings → Service → Start Command)
 
 ### App won't start (other issues)
 - Check Railway logs for errors
