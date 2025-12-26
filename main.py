@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import stripe
+import uvicorn
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import BooleanObject, NameObject, DictionaryObject
 from reportlab.lib.pagesizes import letter
@@ -1774,4 +1775,18 @@ async def health() -> Dict[str, Any]:
             "backend": db.get_db_backend_name() or "unknown"
         }
     }
+
+
+if __name__ == "__main__":
+    # Read PORT from environment (Railway provides this)
+    # Default to 8000 for local development
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Start uvicorn programmatically
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        proxy_headers=True
+    )
 
