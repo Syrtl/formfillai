@@ -872,14 +872,14 @@ async def extract_fields(
                 filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
-        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-        pdf_bytes = await read_upload_file(pdf_file)
+    pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
@@ -895,10 +895,10 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-        
-        try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -922,14 +922,14 @@ async def extract_fields(
                     "size": file_size
                 }
             })
-        except HTTPException:
-            raise
-        except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -1875,10 +1875,12 @@ async def send_magic_link(request: Request) -> JSONResponse:
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP configured but sending failed - return 503 with safe error and log magic link (prefix only)
+                # SMTP configured but sending failed - return 503 with safe error and log full magic link
                 token_prefix = token[:8] if len(token) >= 8 else "short"
                 logger.error("SMTP send failed after retries for %s: %s. Magic link token prefix: %s", 
                            email, error_msg, token_prefix)
+                # Always log full magic link when SMTP send fails (for Railway logs debugging)
+                logger.info("MAGIC_LINK: %s", magic_link)
                 # Trim error message for safety
                 safe_error = error_msg[:200] if error_msg else "Failed to send email"
                 return JSONResponse(
@@ -2207,24 +2209,57 @@ async def debug_smtp(request: Request) -> JSONResponse:
 
 
 @app.get("/debug/last-magic-link")
-async def debug_last_magic_link() -> JSONResponse:
-    """Debug endpoint to get last generated magic link (dev mode only).
+async def debug_last_magic_link(request: Request, email: Optional[str] = None) -> JSONResponse:
+    """Debug endpoint to get last generated magic link for an email (dev mode only).
     
+    Enabled only when ENV!=production OR DEBUG=1.
     In production, returns 404.
+    
+    Args:
+        email: Email address to look up the latest magic token for.
+               If not provided, returns the last link stored in memory (if any).
     """
     if IS_PRODUCTION:
         raise HTTPException(status_code=404, detail="Not found")
     
+    # If email is provided, look up from database
+    if email:
+        email = email.strip().lower()
+        if not email:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "Email parameter is required"}
+            )
+        
+        # Get latest token from database
+        token = await db.get_latest_magic_token_for_email(email)
+        if token:
+            # Build magic link URL
+            base_url = get_public_base_url(request)
+            magic_link = f"{base_url}/auth/verify?token={token}"
+            return JSONResponse({
+                "ok": True,
+                "magic_link": magic_link
+            })
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "detail": f"No magic token found for email: {email}"}
+            )
+    
+    # Fallback to in-memory storage (for backward compatibility)
     global _last_magic_link
     if _last_magic_link:
         return JSONResponse({
+            "ok": True,
             "magic_link": _last_magic_link,
-            "note": "This endpoint is only available in dev mode"
+            "note": "This is the last link generated in this session. Use ?email=... to look up by email."
         })
     else:
         return JSONResponse({
+            "ok": False,
             "magic_link": None,
-            "note": "No magic link generated yet in this session"
+            "detail": "No magic link generated yet in this session. Use ?email=... to look up by email."
         })
 
 

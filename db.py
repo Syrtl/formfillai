@@ -622,6 +622,36 @@ async def create_magic_token(email: str, expires_in_seconds: int = 15 * 60) -> s
                 raise
 
 
+async def get_latest_magic_token_for_email(email: str) -> Optional[str]:
+    """Get the latest (most recent) magic token for an email address.
+    
+    Returns the token string if found, None otherwise.
+    Used for debugging purposes only.
+    """
+    email_lower = email.lower()
+    
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT token FROM magic_tokens WHERE email = $1 ORDER BY created_at DESC LIMIT 1",
+                email_lower
+            )
+            if row:
+                return row["token"]
+            return None
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT token FROM magic_tokens WHERE email = ? ORDER BY created_at DESC LIMIT 1",
+                (email_lower,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+                return None
+
+
 async def verify_magic_token(token: str) -> Optional[str]:
     """Verify magic token and return email if valid. Marks token as used.
     Uses FOR UPDATE to prevent race conditions and ensures transactional safety.
