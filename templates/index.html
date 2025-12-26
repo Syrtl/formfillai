@@ -1609,7 +1609,8 @@
                 
                 if (response.ok) {
                     // Success - show clear message
-                    let statusHtml = `<div class="login-status success">${data.message || 'Check your email for the magic link.'}</div>`;
+                    const message = responseData?.message || 'Check your email for the magic link.';
+                    let statusHtml = `<div class="login-status success">${message}</div>`;
                     
                     // Show dev link if available (dev mode or if magicLink is provided)
                     const magicLink = responseData?.magicLink || responseData?.dev_link;
@@ -1628,14 +1629,11 @@
                 } else if (response.status === 503) {
                     // Service Unavailable - SMTP not configured or send failed
                     const errorDetail = responseData?.detail || 'Email service is not available. Please try again later.';
-                    if (appConfig.env === 'prod') {
-                        signInStatus.innerHTML = `<div class="login-status error">${errorDetail}</div>`;
-                    } else {
-                        // In dev, still show helpful message
-                        signInStatus.innerHTML = '<div class="login-status error">Email service is not configured. Check server logs for the magic link.</div>';
-                    }
+                    signInStatus.innerHTML = `<div class="login-status error">${errorDetail}</div>`;
                 } else {
-                    signInStatus.innerHTML = `<div class="login-status error">${data.detail || 'Failed to send magic link. Please try again.'}</div>`;
+                    // Other errors
+                    const errorDetail = responseData?.detail || 'Failed to send magic link. Please try again.';
+                    signInStatus.innerHTML = `<div class="login-status error">${errorDetail}</div>`;
                 }
             } catch (err) {
                 signInStatus.innerHTML = `<div class="login-status error">Error: ${err.message}</div>`;
