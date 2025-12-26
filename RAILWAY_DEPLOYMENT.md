@@ -103,22 +103,25 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 **Note:** If `DATABASE_URL` is not set, the app will use SQLite (only in dev mode). In production, Postgres is required.
 
-#### SMTP Variables (Required for Sign-In)
+#### Email Delivery Variables
+
+**Recommended: Resend API (Primary Method)**
 
 | Variable Name | Description | Example Value | Required |
 |--------------|-------------|---------------|----------|
-| `SMTP_HOST` | SMTP server hostname | `smtp.resend.com` | ✅ Yes |
-| `SMTP_PORT` | SMTP server port | `587` | ✅ Yes |
-| `SMTP_USER` | SMTP username | `resend` | ✅ Yes |
-| `SMTP_PASS` | SMTP password/API key | `your-resend-api-key` | ✅ Yes |
-| `SMTP_FROM` | From email address | `noreply@yourdomain.com` | ✅ Yes |
+| `RESEND_API_KEY` | Resend API key for HTTP API email delivery. **Recommended on Railway** (avoids SMTP port blocking). | `re_xxxxxxxxxxxxx` | ✅ Recommended |
+| `EMAIL_FROM` or `SMTP_FROM` | Sender email address. Supports "Name <email>" format. Must be verified in Resend. | `FormFillAI <[email protected]>` | ✅ Required if using Resend |
 
-**Resend SMTP Example:**
-- `SMTP_HOST=smtp.resend.com`
-- `SMTP_PORT=587`
-- `SMTP_USER=resend`
-- `SMTP_PASS=re_xxxxxxxxxxxxx` (your Resend API key)
-- `SMTP_FROM=noreply@yourdomain.com` (must be verified in Resend)
+**Optional: SMTP Fallback**
+
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `SMTP_HOST` | SMTP server hostname. Only needed if not using Resend API. | `smtp.resend.com` | ❌ Optional |
+| `SMTP_PORT` | SMTP server port. Defaults to 587 if not set. | `587` | ❌ Optional |
+| `SMTP_USER` or `SMTP_USERNAME` | SMTP username. | `resend` | ❌ Optional |
+| `SMTP_PASS` or `SMTP_PASSWORD` | SMTP password. | `your-smtp-password` | ❌ Optional |
+
+**Note:** The app will use Resend API if `RESEND_API_KEY` is set, and fall back to SMTP if Resend is not configured. On Railway, Resend API is recommended because SMTP port 587 may be blocked or unreliable.
 
 **⚠️ Important: Resend Domain Verification**
 
