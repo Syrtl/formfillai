@@ -645,6 +645,16 @@ async def periodic_cleanup() -> None:
 async def startup_event() -> None:
     ensure_tmp_dir()
     
+    # Log app version/commit for deployment verification
+    try:
+        import subprocess
+        commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        commit_hash = "unknown"
+    
+    logger.info("=== FormFillAI Startup ===")
+    logger.info("App version: commit=%s", commit_hash)
+    
     # Log environment and required variables BEFORE any initialization
     database_url_set = bool(os.getenv("DATABASE_URL"))
     app_signing_secret_set = bool(os.getenv("APP_SIGNING_SECRET"))
@@ -862,21 +872,21 @@ async def extract_fields(
                 filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
-        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
-        logger.warning("Analyze PDF failed: invalid file type filename=%s user_id=%s error=%s",
+        logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-        pdf_bytes = await read_upload_file(pdf_file)
+    pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
         
         # Check file size (10MB limit)
         if file_size > MAX_UPLOAD_SIZE:
-            logger.warning("Analyze PDF failed: file too large filename=%s size=%d user_id=%s",
+            logger.warning("POST /fields failed: file too large filename=%s size=%d user_id=%s",
                           filename, file_size, user_id)
             raise HTTPException(
                 status_code=413,
@@ -885,10 +895,10 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-        
-        try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -901,20 +911,30 @@ async def extract_fields(
                     detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
                 )
             
-            return JSONResponse({"fields": fields_metadata, "pdf_hash": pdf_hash})
-        except HTTPException:
-            raise
-        except Exception as exc:
+            # Return stable JSON shape that frontend expects
+            return JSONResponse({
+                "ok": True,
+                "fields": fields_metadata,
+                "pdf_hash": pdf_hash,
+                "meta": {
+                    "field_count": field_count,
+                    "filename": filename,
+                    "size": file_size
+                }
+            })
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Analyze PDF error: filename=%s user_id=%s error=%s",
+        logger.error("POST /fields error: filename=%s user_id=%s error=%s",
                     filename, user_id, str(exc), exc_info=True)
         raise HTTPException(
             status_code=500,
@@ -1579,8 +1599,14 @@ async def ai_fix_pdf(
         raise HTTPException(status_code=500, detail="AI correction failed. Please try again.")
 
 
-async def send_email_via_smtp(to_email: str, subject: str, body: str) -> Tuple[bool, Optional[str]]:
+async def send_email_via_smtp(to_email: str, subject: str, body: str, smtp_config: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[str]]:
     """Send email via SMTP with retry logic. 
+    
+    Args:
+        to_email: Recipient email address
+        subject: Email subject
+        body: Email body (HTML)
+        smtp_config: Optional SMTP config dict from get_smtp_config(). If None, calls get_smtp_config().
     
     Returns:
         Tuple[bool, Optional[str]]: (success, error_message)
@@ -1589,9 +1615,23 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> Tuple[b
     
     Uses connection timeout (10s) and handles all SMTP errors robustly.
     """
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM]):
-        logger.warning("SMTP not configured: missing required environment variables")
-        return (False, "SMTP not configured: missing required environment variables")
+    # Get fresh SMTP config if not provided
+    if smtp_config is None:
+        smtp_config = get_smtp_config()
+    
+    # Check if SMTP is configured
+    if not smtp_config["configured"]:
+        missing_keys_str = ", ".join(smtp_config["missing_keys"])
+        logger.warning("SMTP not configured: missing keys=%s", missing_keys_str)
+        return (False, f"SMTP not configured: missing {missing_keys_str}")
+    
+    # Extract config values
+    host = smtp_config["host"]
+    user = smtp_config["user"]
+    pass_val = smtp_config["pass"]
+    from_raw = smtp_config["from_raw"]
+    from_email = smtp_config["from"]
+    port = smtp_config["port"]
     
     def _send_sync():
         """Synchronous SMTP send function to run in thread pool."""
@@ -1599,7 +1639,7 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> Tuple[b
             # Create message
             msg = MIMEMultipart()
             # Use raw FROM if available (supports "Name <email>"), otherwise use extracted email
-            msg['From'] = SMTP_FROM_RAW if SMTP_FROM_RAW else SMTP_FROM
+            msg['From'] = from_raw if from_raw else from_email
             msg['To'] = to_email
             msg['Subject'] = subject
             
@@ -1608,13 +1648,13 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> Tuple[b
             
             # Connect with timeout (10 seconds for connection)
             # Note: send_message may take additional time, but connection is established within timeout
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            with smtplib.SMTP(host, port, timeout=10) as server:
                 # Enable TLS with timeout
                 server.starttls()
                 # Login with timeout handling
-                server.login(SMTP_USER, SMTP_PASS)
+                server.login(user, pass_val)
                 # Send message - use extracted email for from_addr
-                server.send_message(msg, from_addr=SMTP_FROM, to_addrs=[to_email])
+                server.send_message(msg, from_addr=from_email, to_addrs=[to_email])
             
             return (True, None)
         except (smtplib.SMTPException, smtplib.SMTPAuthenticationError, 
@@ -1799,7 +1839,8 @@ async def send_magic_link(request: Request) -> JSONResponse:
                 email_sent, error_msg = await send_email_via_smtp(
                     to_email=email,
                     subject="Sign in to FormFillAI",
-                    body=f"""<html><body><p>Click the link below to sign in:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p></body></html>"""
+                    body=f"""<html><body><p>Click the link below to sign in:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p></body></html>""",
+                    smtp_config=smtp_config
                 )
                 if email_sent:
                     logger.info("Email sent via SMTP to %s", email)
@@ -1817,28 +1858,32 @@ async def send_magic_link(request: Request) -> JSONResponse:
         
         # In production: ensure SMTP is used when configured
         if smtp_configured:
-            # Send email via SMTP - only return success if email was actually sent
+            # Send email via SMTP - pass config to ensure consistency
             email_sent, error_msg = await send_email_via_smtp(
                 to_email=email,
                 subject="Sign in to FormFillAI",
-                body=f"""<html><body><p>Click the link below to sign in to your FormFillAI account:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p><p>If you didn't request this link, you can safely ignore this email.</p></body></html>"""
+                body=f"""<html><body><p>Click the link below to sign in to your FormFillAI account:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p><p>If you didn't request this link, you can safely ignore this email.</p></body></html>""",
+                smtp_config=smtp_config
             )
             
             if email_sent:
                 # Email was successfully sent via SMTP
                 logger.info("Email sent via SMTP to %s", email)
                 return JSONResponse({
+                    "ok": True,
                     "success": True,
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP vars are present but sending failed - return 503 with safe error and log magic link (prefix only)
+                # SMTP configured but sending failed - return 503 with safe error and log magic link (prefix only)
                 token_prefix = token[:8] if len(token) >= 8 else "short"
                 logger.error("SMTP send failed after retries for %s: %s. Magic link token prefix: %s", 
                            email, error_msg, token_prefix)
+                # Trim error message for safety
+                safe_error = error_msg[:200] if error_msg else "Failed to send email"
                 return JSONResponse(
                     status_code=503,
-                    content={"detail": error_msg or "Failed to send email. Please try again later or contact support."}
+                    content={"detail": safe_error}
                 )
         else:
             # SMTP not configured - return 503 with list of missing keys
