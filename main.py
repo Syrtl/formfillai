@@ -135,22 +135,6 @@ def get_env(name: str) -> Optional[str]:
     return value
 
 
-# SMTP configuration - support multiple naming variants with normalization
-SMTP_HOST = get_env("SMTP_HOST")
-SMTP_USER = get_env("SMTP_USER") or get_env("SMTP_USERNAME")
-SMTP_PASS = get_env("SMTP_PASS") or get_env("SMTP_PASSWORD")
-SMTP_FROM_RAW = get_env("SMTP_FROM") or get_env("EMAIL_FROM")
-
-# SMTP_PORT is OPTIONAL - default to 587 if missing or invalid
-SMTP_PORT_RAW = get_env("SMTP_PORT")
-SMTP_PORT = 587  # Default
-if SMTP_PORT_RAW:
-    try:
-        SMTP_PORT = int(SMTP_PORT_RAW)
-    except (ValueError, TypeError):
-        logger.warning("SMTP_PORT could not be parsed as integer: %s. Using default 587.", SMTP_PORT_RAW)
-        SMTP_PORT = 587
-
 # Extract email from "Name <email>" format if needed
 def extract_email_from_string(email_str: Optional[str]) -> Optional[str]:
     """Extract email address from string, handling 'Name <email>' format."""
@@ -161,7 +145,79 @@ def extract_email_from_string(email_str: Optional[str]) -> Optional[str]:
     # If parseaddr found an email, use it; otherwise use the original string
     return email if email else email_str
 
-SMTP_FROM = extract_email_from_string(SMTP_FROM_RAW)
+
+def get_smtp_config() -> Dict[str, Any]:
+    """Get SMTP configuration with normalized env vars.
+    
+    Returns dict with:
+    - host, user, pass, from_raw, from (extracted), port
+    - host_present, user_present, pass_present, from_present
+    - configured (bool)
+    - missing_keys (list of missing required keys)
+    """
+    # Support multiple naming variants with normalization
+    host = get_env("SMTP_HOST")
+    user = get_env("SMTP_USER") or get_env("SMTP_USERNAME")
+    pass_val = get_env("SMTP_PASS") or get_env("SMTP_PASSWORD")
+    from_raw = get_env("SMTP_FROM") or get_env("EMAIL_FROM")
+    
+    # SMTP_PORT is OPTIONAL - default to 587 if missing or invalid
+    port_raw = get_env("SMTP_PORT")
+    port = 587  # Default
+    if port_raw:
+        try:
+            port = int(port_raw)
+        except (ValueError, TypeError):
+            logger.warning("SMTP_PORT could not be parsed as integer: %s. Using default 587.", port_raw)
+            port = 587
+    
+    # Extract email from "Name <email>" format
+    from_email = extract_email_from_string(from_raw)
+    
+    # Check which required keys are present
+    host_present = bool(host)
+    user_present = bool(user)
+    pass_present = bool(pass_val)
+    from_present = bool(from_email)
+    
+    # Determine configuration status
+    configured = all([host_present, user_present, pass_present, from_present])
+    
+    # List missing keys
+    missing_keys = []
+    if not host_present:
+        missing_keys.append("SMTP_HOST")
+    if not user_present:
+        missing_keys.append("SMTP_USER or SMTP_USERNAME")
+    if not pass_present:
+        missing_keys.append("SMTP_PASS or SMTP_PASSWORD")
+    if not from_present:
+        missing_keys.append("SMTP_FROM or EMAIL_FROM")
+    
+    return {
+        "host": host,
+        "user": user,
+        "pass": pass_val,
+        "from_raw": from_raw,
+        "from": from_email,
+        "port": port,
+        "host_present": host_present,
+        "user_present": user_present,
+        "pass_present": pass_present,
+        "from_present": from_present,
+        "configured": configured,
+        "missing_keys": missing_keys
+    }
+
+
+# Initialize SMTP config at module level
+_smtp_config = get_smtp_config()
+SMTP_HOST = _smtp_config["host"]
+SMTP_USER = _smtp_config["user"]
+SMTP_PASS = _smtp_config["pass"]
+SMTP_FROM_RAW = _smtp_config["from_raw"]
+SMTP_FROM = _smtp_config["from"]
+SMTP_PORT = _smtp_config["port"]
 
 # Thread pool for SMTP (smtplib is synchronous)
 _smtp_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="smtp")
@@ -815,8 +871,8 @@ async def extract_fields(
     try:
         pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
-        logger.info("POST /fields: filename=%s size=%d bytes authenticated=%s user_id=%s", 
-                    filename, file_size, is_authenticated, user_id)
+        logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
+                    filename, file_size, content_type, is_authenticated, user_id, user_email)
         
         # Check file size (10MB limit)
         if file_size > MAX_UPLOAD_SIZE:
@@ -1696,21 +1752,20 @@ async def send_magic_link(request: Request) -> JSONResponse:
             form_data = await request.form()
             email = form_data.get("email", "").strip()
         
-        # Determine SMTP configuration (only check HOST, USER, PASS, FROM - PORT is optional)
-        smtp_host_present = bool(SMTP_HOST)
-        smtp_user_present = bool(SMTP_USER)
-        smtp_pass_present = bool(SMTP_PASS)
-        smtp_from_present = bool(SMTP_FROM)
-        smtp_configured = all([smtp_host_present, smtp_user_present, smtp_pass_present, smtp_from_present])
+        # Get SMTP configuration using shared function
+        smtp_config = get_smtp_config()
+        smtp_configured = smtp_config["configured"]
+        missing_keys = smtp_config["missing_keys"]
         
         # Log SMTP resolution (unambiguous, no secrets)
-        logger.info("SMTP resolved: host=%s user=%s pass_present=%s from=%s port=%s configured=%s",
-                    "present" if smtp_host_present else "missing",
-                    "present" if smtp_user_present else "missing",
-                    smtp_pass_present,
-                    "present" if smtp_from_present else "missing",
-                    SMTP_PORT,
-                    smtp_configured)
+        logger.info("SMTP resolved: host=%s user=%s pass_present=%s from=%s port=%s configured=%s missing_keys=%s",
+                    "present" if smtp_config["host_present"] else "missing",
+                    "present" if smtp_config["user_present"] else "missing",
+                    smtp_config["pass_present"],
+                    "present" if smtp_config["from_present"] else "missing",
+                    smtp_config["port"],
+                    smtp_configured,
+                    missing_keys if missing_keys else "none")
         
         # Validate email format
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -1786,13 +1841,14 @@ async def send_magic_link(request: Request) -> JSONResponse:
                     content={"detail": error_msg or "Failed to send email. Please try again later or contact support."}
                 )
         else:
-            # SMTP not configured - return clear error and ALWAYS log magic link (prefix only)
+            # SMTP not configured - return 503 with list of missing keys
             token_prefix = token[:8] if len(token) >= 8 else "short"
-            logger.warning("SMTP not configured: missing required variables (SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM). "
-                         "Magic link token prefix: %s", token_prefix)
+            missing_keys_str = ", ".join(missing_keys)
+            logger.warning("SMTP not configured: missing keys=%s. Magic link token prefix: %s", 
+                         missing_keys_str, token_prefix)
             return JSONResponse(
                 status_code=503,
-                content={"detail": "Email service is not configured. Please configure SMTP settings to enable sign-in."}
+                content={"detail": f"Email service is not configured. Missing: {missing_keys_str}"}
             )
     except HTTPException:
         # Re-raise HTTP exceptions (400, etc.)
@@ -2072,19 +2128,13 @@ async def debug_smtp(request: Request) -> JSONResponse:
     Returns SMTP configuration status, PUBLIC_BASE_URL, and environment info.
     Does NOT leak secrets - only shows booleans and parsed port.
     """
-    # Get SMTP vars status
-    smtp_host_present = bool(SMTP_HOST)
-    smtp_user_present = bool(SMTP_USER)
-    smtp_pass_present = bool(SMTP_PASS)
-    smtp_from_present = bool(SMTP_FROM)
+    # Get SMTP config using shared function
+    smtp_config = get_smtp_config()
     
     # Check if FROM is in angle bracket format (e.g., "Name <email@domain.com>")
     from_is_angle_format = False
-    if SMTP_FROM_RAW and "<" in SMTP_FROM_RAW and ">" in SMTP_FROM_RAW:
+    if smtp_config["from_raw"] and "<" in smtp_config["from_raw"] and ">" in smtp_config["from_raw"]:
         from_is_angle_format = True
-    
-    # Get port value (safe to return as it's just a number)
-    port_value = SMTP_PORT if SMTP_PORT_RAW else None
     
     # Get PUBLIC_BASE_URL
     public_base_url_value = get_env("PUBLIC_BASE_URL")
@@ -2092,12 +2142,14 @@ async def debug_smtp(request: Request) -> JSONResponse:
     
     return JSONResponse({
         "smtp": {
-            "host_present": smtp_host_present,
-            "user_present": smtp_user_present,
-            "pass_present": smtp_pass_present,
-            "from_present": smtp_from_present,
-            "port_value": port_value,
-            "from_is_angle_format": from_is_angle_format
+            "host_present": smtp_config["host_present"],
+            "user_present": smtp_config["user_present"],
+            "pass_present": smtp_config["pass_present"],
+            "from_present": smtp_config["from_present"],
+            "port_value": smtp_config["port"],
+            "from_is_angle_format": from_is_angle_format,
+            "configured": smtp_config["configured"],
+            "missing_keys": smtp_config["missing_keys"]
         },
         "public_base_url_present": public_base_url_present,
         "public_base_url_value": public_base_url_value,
@@ -2129,6 +2181,82 @@ async def debug_last_magic_link() -> JSONResponse:
             "magic_link": None,
             "note": "No magic link generated yet in this session"
         })
+
+
+@app.get("/debug/email/test")
+async def debug_email_test(request: Request, to: str) -> JSONResponse:
+    """Test email endpoint - sends a simple test email (dev mode only, no secrets in logs).
+    
+    In production, returns 404.
+    """
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    # Get SMTP config
+    smtp_config = get_smtp_config()
+    if not smtp_config["configured"]:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": f"SMTP not configured. Missing: {', '.join(smtp_config['missing_keys'])}"}
+        )
+    
+    # Send test email
+    email_sent, error_msg = await send_email_via_smtp(
+        to_email=to,
+        subject="FormFillAI Test Email",
+        body="<html><body><p>This is a test email from FormFillAI.</p><p>If you received this, SMTP is working correctly.</p></body></html>"
+    )
+    
+    if email_sent:
+        logger.info("Test email sent to %s", to)
+        return JSONResponse({
+            "ok": True,
+            "message": f"Test email sent to {to}"
+        })
+    else:
+        logger.error("Test email failed to %s: %s", to, error_msg)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": error_msg or "Failed to send test email"}
+        )
+
+
+@app.get("/debug/email/test")
+async def debug_email_test(request: Request, to: str) -> JSONResponse:
+    """Test email endpoint - sends a simple test email (dev mode only, no secrets in logs).
+    
+    In production, returns 404.
+    """
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    # Get SMTP config
+    smtp_config = get_smtp_config()
+    if not smtp_config["configured"]:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": f"SMTP not configured. Missing: {', '.join(smtp_config['missing_keys'])}"}
+        )
+    
+    # Send test email
+    email_sent, error_msg = await send_email_via_smtp(
+        to_email=to,
+        subject="FormFillAI Test Email",
+        body="<html><body><p>This is a test email from FormFillAI.</p><p>If you received this, SMTP is working correctly.</p></body></html>"
+    )
+    
+    if email_sent:
+        logger.info("Test email sent to %s", to)
+        return JSONResponse({
+            "ok": True,
+            "message": f"Test email sent to {to}"
+        })
+    else:
+        logger.error("Test email failed to %s: %s", to, error_msg)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": error_msg or "Failed to send test email"}
+        )
 
 
 @app.get("/debug/auth")

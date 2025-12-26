@@ -28,10 +28,10 @@ If Railway shows "No repositories found":
 
 **IMPORTANT: Start Command is Auto-Configured**
 
-The repository pins the correct start command via:
-- `Procfile` - Contains the web process command
-- `nixpacks.toml` - Hard-pins the start command (prevents Railway from overriding)
-- `railway.json` - Railway-specific configuration
+The repository uses a single source of truth for the start command:
+- `Procfile` - Contains the web process command (primary)
+- `nixpacks.toml` - Hard-pins the start command as backup (prevents Railway from overriding)
+- `railway.json` - Railway-specific configuration (NO startCommand field to avoid conflicts)
 
 **Start Command:**
 ```
@@ -46,8 +46,12 @@ sh -c 'uvicorn main:app --host 0.0.0.0 --port "$PORT" --proxy-headers'
 **Railway UI Note:**
 - Railway's UI may show an auto-generated uvicorn command in the Start Command field
 - **DO NOT** manually set or override the Start Command in Railway UI
-- The repository configuration files (`Procfile`, `nixpacks.toml`, `railway.json`) ensure the correct command is used
+- The repository configuration files (`Procfile`, `nixpacks.toml`) ensure the correct command is used
 - If you see a different command in Railway UI, it's just a display issue - the pinned command will be used
+
+**Repository Cleanup:**
+- Fly.io files (`fly.toml`, `FLY_DEPLOYMENT.md`) have been removed to avoid conflicts
+- Only Railway deployment files are present
 
 **What Railway does automatically:**
 - Detects Python from `requirements.txt`

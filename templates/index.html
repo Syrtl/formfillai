@@ -1915,10 +1915,19 @@
             const file = pdfFileInput.files[0];
             if (!file) {
                 setStatus(t('errors.select_pdf_first'), true);
+                showToast(t('errors.select_pdf_first') || 'Please select a PDF file first', 'error');
                 return;
             }
 
+            // Log analyze click with file info
+            console.log('Analyze clicked:', {
+                filename: file.name,
+                size: file.size,
+                type: file.type
+            });
+
             setStatus(t('analyzing'));
+            showToast('Uploading...', 'success');
             analyzeBtn.disabled = true;
             analyzeBtn.textContent = t('analyzing');
 
