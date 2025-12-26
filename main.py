@@ -107,15 +107,56 @@ openai_client = None
 if OPENAI_AVAILABLE and OPENAI_API_KEY:
     openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# SMTP configuration - support multiple naming variants
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+# Helper function to normalize environment variables
+def get_normalized_env(key: str, alt_key: Optional[str] = None) -> Optional[str]:
+    """Get and normalize environment variable.
+    
+    Normalization:
+    - Strip whitespace
+    - Remove outer quotes (single or double)
+    - Treat empty strings as missing
+    
+    Supports alternative key (e.g., SMTP_USER or SMTP_USERNAME).
+    """
+    value = os.getenv(key)
+    if not value and alt_key:
+        value = os.getenv(alt_key)
+    
+    if not value:
+        return None
+    
+    # Strip whitespace
+    value = value.strip()
+    
+    # Remove outer quotes if present
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        value = value[1:-1]
+    
+    # Treat empty strings as missing
+    if not value:
+        return None
+    
+    return value
+
+
+# SMTP configuration - support multiple naming variants with normalization
+SMTP_HOST = get_normalized_env("SMTP_HOST")
+SMTP_PORT_RAW = get_normalized_env("SMTP_PORT")
+SMTP_PORT = 587  # Default
+if SMTP_PORT_RAW:
+    try:
+        SMTP_PORT = int(SMTP_PORT_RAW)
+    except (ValueError, TypeError):
+        logger.warning("SMTP_PORT could not be parsed as integer: %s. Using default 587.", SMTP_PORT_RAW)
+        SMTP_PORT = 587
+        SMTP_PORT_RAW = None  # Treat as missing if parsing fails
+
 # Support both SMTP_USER and SMTP_USERNAME
-SMTP_USER = os.getenv("SMTP_USER") or os.getenv("SMTP_USERNAME")
+SMTP_USER = get_normalized_env("SMTP_USER", "SMTP_USERNAME")
 # Support both SMTP_PASS and SMTP_PASSWORD
-SMTP_PASS = os.getenv("SMTP_PASS") or os.getenv("SMTP_PASSWORD")
+SMTP_PASS = get_normalized_env("SMTP_PASS", "SMTP_PASSWORD")
 # Support both SMTP_FROM and EMAIL_FROM
-SMTP_FROM_RAW = os.getenv("SMTP_FROM") or os.getenv("EMAIL_FROM")
+SMTP_FROM_RAW = get_normalized_env("SMTP_FROM", "EMAIL_FROM")
 
 # Extract email from "Name <email>" format if needed
 def extract_email_from_string(email_str: Optional[str]) -> Optional[str]:
@@ -734,6 +775,15 @@ async def set_language(request: Request, lang: str = Form(...)) -> JSONResponse:
     return response
 
 
+@app.get("/fields")
+async def extract_fields_get() -> JSONResponse:
+    """GET handler for /fields - returns friendly message instead of Method Not Allowed."""
+    return JSONResponse(
+        status_code=200,
+        content={"ok": False, "detail": "Use POST with multipart/form-data containing a PDF file (field name: 'pdf_file')"}
+    )
+
+
 @app.post("/fields")
 async def extract_fields(
     request: Request,
@@ -744,11 +794,13 @@ async def extract_fields(
     user = await get_current_user_async(request)
     user_id = user.get("id") if user else None
     user_email = user.get("email") if user else None
+    is_authenticated = user is not None
     
-    # Log analyze request
+    # Log analyze request with content-type
     filename = pdf_file.filename or "unknown"
-    logger.info("Analyze PDF request: filename=%s user_id=%s user_email=%s", 
-                filename, user_id, user_email)
+    content_type = pdf_file.content_type or "unknown"
+    logger.info("POST /fields: filename=%s content_type=%s size=%s authenticated=%s user_id=%s user_email=%s",
+                filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
         validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
@@ -760,8 +812,8 @@ async def extract_fields(
     try:
         pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
-        logger.info("Analyze PDF: filename=%s size=%d bytes user_id=%s", 
-                    filename, file_size, user_id)
+        logger.info("POST /fields: filename=%s size=%d bytes authenticated=%s user_id=%s", 
+                    filename, file_size, is_authenticated, user_id)
         
         # Check file size (10MB limit)
         if file_size > MAX_UPLOAD_SIZE:
@@ -779,12 +831,23 @@ async def extract_fields(
             reader = PdfReader(BytesIO(pdf_bytes))
             fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
-            logger.info("Analyze PDF success: filename=%s fields=%d user_id=%s",
-                       filename, field_count, user_id)
+            logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
+                       filename, file_size, field_count, is_authenticated, user_id)
+            
+            if field_count == 0:
+                logger.warning("POST /fields: no fields found filename=%s size=%d authenticated=%s user_id=%s",
+                             filename, file_size, is_authenticated, user_id)
+                raise HTTPException(
+                    status_code=422,
+                    detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+                )
+            
             return JSONResponse({"fields": fields_metadata, "pdf_hash": pdf_hash})
+        except HTTPException:
+            raise
         except Exception as exc:
-            logger.warning("Analyze PDF failed: invalid PDF filename=%s user_id=%s error=%s",
-                          filename, user_id, str(exc))
+            logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
+                          filename, file_size, is_authenticated, user_id, str(exc))
             raise HTTPException(
                 status_code=422,
                 detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
@@ -1630,9 +1693,14 @@ async def send_magic_link(request: Request) -> JSONResponse:
             form_data = await request.form()
             email = form_data.get("email", "").strip()
         
-        # Log request received and SMTP config status
-        smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
-        logger.info("POST /auth/send-magic-link: email=%s smtp_configured=%s", email, smtp_configured)
+        # Log request received and SMTP config status (booleans only)
+        smtp_host_present = bool(SMTP_HOST)
+        smtp_user_present = bool(SMTP_USER)
+        smtp_pass_present = bool(SMTP_PASS)
+        smtp_from_present = bool(SMTP_FROM)
+        smtp_configured = all([smtp_host_present, smtp_user_present, smtp_pass_present, smtp_from_present])
+        logger.info("POST /auth/send-magic-link: email=%s smtp_host=%s smtp_user=%s smtp_pass=%s smtp_from=%s smtp_configured=%s",
+                    email, smtp_host_present, smtp_user_present, smtp_pass_present, smtp_from_present, smtp_configured)
         
         # Validate email format
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -1984,6 +2052,41 @@ async def health() -> Dict[str, Any]:
             "backend": db_backend
         }
     }
+
+
+@app.get("/debug/smtp")
+async def debug_smtp(request: Request) -> JSONResponse:
+    """Debug endpoint for SMTP configuration (production-safe).
+    
+    Returns SMTP configuration status, PUBLIC_BASE_URL, and environment info.
+    Does NOT leak secrets - only shows booleans and parsed port.
+    """
+    # Get normalized SMTP vars (using the same helper)
+    smtp_host_present = bool(SMTP_HOST)
+    smtp_port_present = bool(SMTP_PORT_RAW)  # Whether port env var was set (even if parsing failed)
+    smtp_user_present = bool(SMTP_USER)
+    smtp_pass_present = bool(SMTP_PASS)
+    smtp_from_present = bool(SMTP_FROM)
+    
+    # Get port value (safe to return as it's just a number)
+    port_value = SMTP_PORT if smtp_port_present else None
+    
+    # Get PUBLIC_BASE_URL
+    public_base_url = os.getenv("PUBLIC_BASE_URL") or "not set"
+    
+    return JSONResponse({
+        "smtp": {
+            "host_present": smtp_host_present,
+            "port_present": smtp_port_present,
+            "user_present": smtp_user_present,
+            "pass_present": smtp_pass_present,
+            "from_present": smtp_from_present,
+            "port_value": port_value
+        },
+        "public_base_url": public_base_url,
+        "env": ENV or "not set",
+        "is_production": IS_PRODUCTION
+    })
 
 
 @app.get("/debug/auth")
