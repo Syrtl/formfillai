@@ -614,7 +614,7 @@ async def startup_event() -> None:
 
 async def get_current_user_async(request: Request) -> Optional[Dict[str, Any]]:
     """Get current user from session cookie (async)."""
-    session_id = request.cookies.get("session_id")
+    session_id = request.cookies.get("session")
     if not session_id:
         return None
     session = await db.get_session(session_id)
@@ -1547,9 +1547,21 @@ def get_public_base_url(request: Request) -> str:
 
 
 # Authentication endpoints
+@app.get("/auth/send-magic-link")
+async def send_magic_link_get() -> JSONResponse:
+    """GET handler for send-magic-link - returns friendly message instead of Method Not Allowed."""
+    return JSONResponse(
+        status_code=200,
+        content={"ok": False, "detail": "Use POST with JSON body {email: ...} or FormData with email field"}
+    )
+
+
 @app.post("/auth/send-magic-link")
-async def send_magic_link(request: Request, email: str = Form(...)) -> JSONResponse:
-    """Send magic link email for authentication."""
+async def send_magic_link(request: Request) -> JSONResponse:
+    """Send magic link email for authentication.
+    
+    Accepts either JSON body with {"email": "..."} or FormData with email field.
+    """
     try:
         # Check database availability
         if not db.is_db_available():
@@ -1559,9 +1571,26 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
                 content={"detail": "Database temporarily unavailable. Please try again later."}
             )
         
+        # Extract email from request (supports both JSON and FormData)
+        content_type = request.headers.get("content-type", "").lower()
+        if "application/json" in content_type:
+            try:
+                body = await request.json()
+                email = body.get("email", "").strip()
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid JSON body. Expected {email: ...}")
+        else:
+            # FormData
+            form_data = await request.form()
+            email = form_data.get("email", "").strip()
+        
+        # Log request received and SMTP config status
+        smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
+        logger.info("POST /auth/send-magic-link: email=%s smtp_configured=%s", email, smtp_configured)
+        
         # Validate email format
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, email):
+        if not email or not re.match(email_pattern, email):
             raise HTTPException(status_code=400, detail="Invalid email address.")
         
         # Create or get user
@@ -1577,9 +1606,6 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
         # Build magic link URL using PUBLIC_BASE_URL if available
         base_url = get_public_base_url(request)
         magic_link = f"{base_url}/auth/verify?token={token}"
-        
-        # Check if SMTP is configured (all required vars must be present)
-        smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
         
         # In development, always return the link in response for UI display
         if DEBUG or ENV == "dev":
@@ -1652,6 +1678,10 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     
     Validates token, marks it as used, creates session, and sets secure cookie.
     """
+    # Log token prefix (first 6 chars) for debugging
+    token_prefix = token[:6] if token and len(token) >= 6 else "none"
+    logger.info("Magic link verification request: token_prefix=%s", token_prefix)
+    
     # Check database availability
     if not db.is_db_available():
         logger.error("Database not available for magic link verification")
@@ -1660,10 +1690,10 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     # Verify token (this marks it as used atomically)
     email = await db.verify_magic_token(token)
     if not email:
-        logger.warning("Magic link verification failed for token (first 6 chars): %s", token[:6] if token else "none")
+        logger.warning("Magic link verification failed: token_prefix=%s reason=invalid/expired/used", token_prefix)
         return RedirectResponse(url="/?auth_error=invalid_token", status_code=303)
     
-    logger.info("Magic link verified successfully for email: %s", email)
+    logger.info("Magic link verified successfully: token_prefix=%s email=%s", token_prefix, email)
     
     # Get or create user
     user = await db.get_user_by_email(email)
@@ -1675,7 +1705,7 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     
     # Create session
     session_id = await db.create_session(user_id)
-    logger.info("Session created for user_id: %s", user_id)
+    logger.info("Session created for user_id=%s", user_id)
     
     # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
     is_https = request.url.scheme == "https"
@@ -1685,10 +1715,11 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
         is_https = forwarded_proto == "https"
     
     # Set session cookie with proper security settings
-    # Redirect to root (/) which will show authenticated state
-    response = RedirectResponse(url="/", status_code=303)
+    # Cookie name is "session" (not "session_id")
+    # Redirect to root (/) with auth_success=1
+    response = RedirectResponse(url="/?auth_success=1", status_code=303)
     response.set_cookie(
-        key="session_id",
+        key="session",
         value=session_id,
         httponly=True,
         secure=is_https or IS_PRODUCTION,  # Secure when HTTPS or in production
@@ -1696,18 +1727,19 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
         path="/",
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
+    logger.info("Set-cookie issued: secure=%s samesite=lax path=/ httponly=True", is_https or IS_PRODUCTION)
     return response
 
 
 @app.post("/auth/logout")
 async def logout(request: Request) -> JSONResponse:
     """Logout user by deleting session."""
-    session_id = request.cookies.get("session_id")
+    session_id = request.cookies.get("session")
     if session_id:
         await db.delete_session(session_id)
     
     response = JSONResponse({"success": True})
-    response.delete_cookie("session_id", httponly=True, secure=IS_PRODUCTION, samesite="lax")
+    response.delete_cookie("session", httponly=True, secure=IS_PRODUCTION, samesite="lax", path="/")
     return response
 
 
