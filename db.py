@@ -1,9 +1,12 @@
 """Database module for users, sessions, and profiles.
 Supports both PostgreSQL (via DATABASE_URL) and SQLite (fallback).
+When DATABASE_URL is set, Postgres is REQUIRED - no fallback to SQLite.
 """
+import asyncio
 import json
 import logging
 import os
+import random
 import secrets
 import time
 from pathlib import Path
@@ -16,6 +19,7 @@ logger = logging.getLogger("formfillai.db")
 _pg_pool: Optional[Any] = None
 _USE_POSTGRES = False
 DB_PATH: Optional[Path] = None
+_DB_BACKEND_NAME: Optional[str] = None  # Track which backend is in use
 
 # Import aiosqlite at module level (will be used if Postgres not available)
 import aiosqlite
@@ -41,86 +45,96 @@ CANONICAL_FIELDS = {
 async def init_db() -> None:
     """Initialize database tables and connection pool.
     Reads DATABASE_URL at runtime (not import time) to support Fly.io secrets.
+    
+    When DATABASE_URL is set, Postgres is REQUIRED - retries for ~60 seconds with exponential backoff.
+    If Postgres connection fails after retries, raises exception (no SQLite fallback).
+    
+    SQLite is only used when DATABASE_URL is not set.
     """
-    global _pg_pool, _USE_POSTGRES, DB_PATH
+    global _pg_pool, _USE_POSTGRES, DB_PATH, _DB_BACKEND_NAME
     
     # Read DATABASE_URL at runtime (not import time)
     database_url = os.getenv("DATABASE_URL")
     
     if database_url:
-        # Try to use Postgres
+        # DATABASE_URL is set - Postgres is REQUIRED, no fallback to SQLite
         try:
             import asyncpg
         except ImportError:
-            logger.warning("DATABASE_URL set but asyncpg not installed. Falling back to SQLite.")
-            database_url = None
+            raise RuntimeError(
+                "DATABASE_URL is set but asyncpg is not installed. "
+                "Install asyncpg or remove DATABASE_URL to use SQLite."
+            )
         
-        if database_url:
-            # Parse DATABASE_URL (format: postgres://user:pass@host:port/dbname?sslmode=disable)
-            parsed = urlparse(database_url)
-            
-            # Parse query parameters for SSL mode
-            sslmode_str = None
-            if parsed.query:
-                # Parse query string properly (handle URL encoding, multiple params)
-                from urllib.parse import parse_qs
-                query_params = parse_qs(parsed.query)
-                sslmode_list = query_params.get('sslmode', [])
-                if sslmode_list:
-                    sslmode_str = sslmode_list[0].lower()
-                # Also try simple parsing as fallback
-                if not sslmode_str:
-                    simple_params = dict(param.split('=') for param in parsed.query.split('&') if '=' in param)
-                    sslmode_str = simple_params.get('sslmode', '').lower() or None
-            
-            db_config = {
-                "host": parsed.hostname,
-                "port": parsed.port or 5432,
-                "user": parsed.username,
-                "password": parsed.password,
-                "database": parsed.path.lstrip("/"),
-            }
-            
-            # Set SSL mode explicitly based on sslmode parameter
-            # asyncpg: ssl=False completely disables SSL (no TLS handshake attempt, no start_tls call)
-            #         ssl=None may still attempt TLS in some cases
-            #         ssl=True or SSLContext enables SSL
-            if sslmode_str == 'disable':
-                db_config["ssl"] = False  # Explicitly disable SSL (no TLS handshake) - False prevents start_tls
-                logger.info("Postgres SSL disabled (sslmode=disable)")
-            elif sslmode_str in ('require', 'verify-full', 'verify-ca'):
-                # For require/verify modes, use default SSL context
-                import ssl
-                db_config["ssl"] = ssl.create_default_context()
-                logger.info("Postgres SSL enabled (sslmode=%s)", sslmode_str)
-            else:
-                # No sslmode specified - explicitly set ssl=False to avoid TLS attempts
-                # This ensures we don't accidentally try TLS when not configured
-                db_config["ssl"] = False
-                logger.info("Postgres SSL mode not specified, disabling SSL (ssl=False)")
-            
-            # Prepare kwargs for create_pool (only pass what asyncpg expects)
-            pool_kwargs = {
-                "host": db_config["host"],
-                "port": db_config["port"],
-                "user": db_config["user"],
-                "password": db_config["password"],
-                "database": db_config["database"],
-                "ssl": db_config["ssl"],  # Explicitly set: False for disable, SSLContext for require
-                "min_size": 1,
-                "max_size": 10,
-            }
-            
-            # Log pool_kwargs (without password) to verify SSL setting
-            log_kwargs = pool_kwargs.copy()
-            log_kwargs['password'] = '***'
-            logger.info("asyncpg.create_pool kwargs: %s", log_kwargs)
-            
+        # Parse DATABASE_URL (format: postgres://user:pass@host:port/dbname?sslmode=disable)
+        parsed = urlparse(database_url)
+        
+        # Parse query parameters for SSL mode
+        sslmode_str = None
+        if parsed.query:
+            # Parse query string properly (handle URL encoding, multiple params)
+            from urllib.parse import parse_qs
+            query_params = parse_qs(parsed.query)
+            sslmode_list = query_params.get('sslmode', [])
+            if sslmode_list:
+                sslmode_str = sslmode_list[0].lower()
+            # Also try simple parsing as fallback
+            if not sslmode_str:
+                simple_params = dict(param.split('=') for param in parsed.query.split('&') if '=' in param)
+                sslmode_str = simple_params.get('sslmode', '').lower() or None
+        
+        db_config = {
+            "host": parsed.hostname,
+            "port": parsed.port or 5432,
+            "user": parsed.username,
+            "password": parsed.password,
+            "database": parsed.path.lstrip("/"),
+        }
+        
+        # Set SSL mode explicitly based on sslmode parameter
+        if sslmode_str == 'disable':
+            db_config["ssl"] = False
+            logger.info("Postgres SSL disabled (sslmode=disable)")
+        elif sslmode_str in ('require', 'verify-full', 'verify-ca'):
+            import ssl
+            db_config["ssl"] = ssl.create_default_context()
+            logger.info("Postgres SSL enabled (sslmode=%s)", sslmode_str)
+        else:
+            db_config["ssl"] = False
+            logger.info("Postgres SSL mode not specified, disabling SSL (ssl=False)")
+        
+        # Prepare kwargs for create_pool
+        pool_kwargs = {
+            "host": db_config["host"],
+            "port": db_config["port"],
+            "user": db_config["user"],
+            "password": db_config["password"],
+            "database": db_config["database"],
+            "ssl": db_config["ssl"],
+            "min_size": 1,
+            "max_size": 10,
+        }
+        
+        # Log pool_kwargs (without password)
+        log_kwargs = pool_kwargs.copy()
+        log_kwargs['password'] = '***'
+        logger.info("Attempting Postgres connection with retry logic (max ~60s)")
+        logger.info("asyncpg.create_pool kwargs: %s", log_kwargs)
+        
+        # Retry logic: ~60 seconds total with exponential backoff + jitter
+        max_attempts = 10
+        base_delay = 1.0  # Start with 1 second
+        max_delay = 8.0   # Cap at 8 seconds
+        total_timeout = 60.0  # Total timeout ~60 seconds
+        
+        last_exception = None
+        for attempt in range(1, max_attempts + 1):
             try:
                 _pg_pool = await asyncpg.create_pool(**pool_kwargs)
                 _USE_POSTGRES = True
+                _DB_BACKEND_NAME = "postgres"
                 sslmode_log = f"sslmode={sslmode_str}" if sslmode_str else "default SSL"
-                logger.info("Using Postgres (%s)", sslmode_log)
+                logger.info("Postgres connection successful on attempt %d (%s)", attempt, sslmode_log)
                 logger.info("DB backend: postgres")
                 
                 # Initialize tables
@@ -128,22 +142,42 @@ async def init_db() -> None:
                     await _init_postgres_tables(conn)
                 return
             except Exception as e:
-                # Log full exception details with stack trace
-                logger.exception("Failed to connect to Postgres, falling back to SQLite")
-                logger.error("Postgres connection error details: %s", repr(e))
-                _USE_POSTGRES = False
-                # Continue to SQLite fallback below
+                last_exception = e
+                if attempt < max_attempts:
+                    # Exponential backoff with jitter
+                    delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+                    jitter = random.uniform(0, delay * 0.1)  # 10% jitter
+                    delay += jitter
+                    logger.warning(
+                        "Postgres connection attempt %d/%d failed: %s. Retrying in %.2f seconds...",
+                        attempt, max_attempts, str(e)[:100], delay
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    # Last attempt failed
+                    logger.error("Postgres connection failed after %d attempts", max_attempts)
+                    logger.exception("Final Postgres connection error")
+                    raise RuntimeError(
+                        f"Failed to connect to Postgres after {max_attempts} attempts. "
+                        f"Last error: {repr(e)}. "
+                        "When DATABASE_URL is set, Postgres is required. "
+                        "Check your DATABASE_URL and Postgres server availability."
+                    ) from e
+        
+        # Should never reach here, but just in case
+        if last_exception:
+            raise RuntimeError(
+                f"Failed to connect to Postgres. Last error: {repr(last_exception)}"
+            ) from last_exception
     
-    # Fallback to SQLite (only if Postgres not available or connection failed)
-    if not _USE_POSTGRES:
-        DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        logger.info("Using SQLite (no DATABASE_URL or Postgres connection failed)")
-        logger.info("DB backend: sqlite")
-        await _init_sqlite_tables()
-    else:
-        # Postgres succeeded, do not initialize SQLite
-        logger.debug("Postgres connection successful, skipping SQLite initialization")
+    # No DATABASE_URL - use SQLite (only allowed when DATABASE_URL is not set)
+    _USE_POSTGRES = False
+    _DB_BACKEND_NAME = "sqlite"
+    DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Using SQLite (DATABASE_URL not set)")
+    logger.info("DB backend: sqlite")
+    await _init_sqlite_tables()
 
 
 async def _init_postgres_tables(conn) -> None:
@@ -211,6 +245,21 @@ async def _init_postgres_tables(conn) -> None:
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_pdf_mappings_user_hash ON pdf_mappings(user_id, pdf_hash)")
     
     logger.info("Postgres tables initialized")
+
+
+def is_db_available() -> bool:
+    """Check if database is available (Postgres pool or SQLite file exists).
+    Returns True if database backend is ready, False otherwise.
+    """
+    if _USE_POSTGRES:
+        return _pg_pool is not None
+    else:
+        return DB_PATH is not None and DB_PATH.exists()
+
+
+def get_db_backend_name() -> Optional[str]:
+    """Get the name of the current database backend (postgres or sqlite)."""
+    return _DB_BACKEND_NAME
 
 
 async def _init_sqlite_tables() -> None:
@@ -466,65 +515,125 @@ async def delete_session(session_id: str) -> None:
 
 
 async def create_magic_token(email: str, expires_in_seconds: int = 15 * 60) -> str:
-    """Create a magic link token."""
+    """Create a magic link token with transactional safety.
+    Invalidates any existing unused tokens for the email, then creates a new one.
+    """
     token = secrets.token_urlsafe(32)
     now = int(time.time())
     expires_at = now + expires_in_seconds
     email_lower = email.lower()
+    token_prefix = token[:6]  # First 6 chars for logging (safe)
     
     if _USE_POSTGRES:
         async with _pg_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE magic_tokens SET used = 1 WHERE email = $1 AND used = 0",
-                email_lower
-            )
-            await conn.execute(
-                "INSERT INTO magic_tokens (token, email, created_at, expires_at) VALUES ($1, $2, $3, $4)",
-                token, email_lower, now, expires_at
-            )
-            return token
+            # Use transaction for atomicity
+            async with conn.transaction():
+                # Invalidate existing unused tokens for this email
+                await conn.execute(
+                    "UPDATE magic_tokens SET used = 1 WHERE email = $1 AND used = 0",
+                    email_lower
+                )
+                # Insert new token
+                await conn.execute(
+                    "INSERT INTO magic_tokens (token, email, created_at, expires_at, used) VALUES ($1, $2, $3, $4, 0)",
+                    token, email_lower, now, expires_at
+                )
+                logger.info("magic_link_created email=%s token=%s... backend=postgres", email_lower, token_prefix)
+                return token
     else:
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "UPDATE magic_tokens SET used = 1 WHERE email = ? AND used = 0",
-                (email_lower,)
-            )
-            await db.execute(
-                "INSERT INTO magic_tokens (token, email, created_at, expires_at) VALUES (?, ?, ?, ?)",
-                (token, email_lower, now, expires_at)
-            )
-            await db.commit()
-            return token
+            # SQLite transactions
+            await db.execute("BEGIN")
+            try:
+                await db.execute(
+                    "UPDATE magic_tokens SET used = 1 WHERE email = ? AND used = 0",
+                    (email_lower,)
+                )
+                await db.execute(
+                    "INSERT INTO magic_tokens (token, email, created_at, expires_at, used) VALUES (?, ?, ?, ?, 0)",
+                    (token, email_lower, now, expires_at)
+                )
+                await db.commit()
+                logger.info("magic_link_created email=%s token=%s... backend=sqlite", email_lower, token_prefix)
+                return token
+            except Exception:
+                await db.rollback()
+                raise
 
 
 async def verify_magic_token(token: str) -> Optional[str]:
-    """Verify magic token and return email if valid. Marks token as used."""
+    """Verify magic token and return email if valid. Marks token as used.
+    Uses FOR UPDATE to prevent race conditions and ensures transactional safety.
+    """
     now = int(time.time())
+    token_prefix = token[:6]  # First 6 chars for logging (safe)
     
     if _USE_POSTGRES:
         async with _pg_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT email FROM magic_tokens WHERE token = $1 AND expires_at > $2 AND used = 0",
-                token, now
-            )
-            if row:
-                email = row["email"]
-                await conn.execute("UPDATE magic_tokens SET used = 1 WHERE token = $1", token)
-                return email
-            return None
+            # Use transaction with FOR UPDATE to lock the row
+            async with conn.transaction():
+                # SELECT FOR UPDATE locks the row until transaction completes
+                row = await conn.fetchrow(
+                    "SELECT email FROM magic_tokens WHERE token = $1 AND expires_at > $2 AND used = 0 FOR UPDATE",
+                    token, now
+                )
+                if row:
+                    email = row["email"]
+                    # Mark as used within the same transaction
+                    await conn.execute("UPDATE magic_tokens SET used = 1 WHERE token = $1", token)
+                    logger.info("magic_link_verify_success email=%s token=%s... backend=postgres", email, token_prefix)
+                    return email
+                else:
+                    # Check if token exists but is expired/used
+                    check_row = await conn.fetchrow(
+                        "SELECT email, expires_at, used FROM magic_tokens WHERE token = $1",
+                        token
+                    )
+                    if check_row:
+                        if check_row["used"]:
+                            logger.warning("magic_link_verify_invalid token=%s... reason=already_used backend=postgres", token_prefix)
+                        elif check_row["expires_at"] <= now:
+                            logger.warning("magic_link_verify_invalid token=%s... reason=expired backend=postgres", token_prefix)
+                    else:
+                        logger.warning("magic_link_verify_invalid token=%s... reason=not_found backend=postgres", token_prefix)
+                    return None
     else:
         async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT email FROM magic_tokens WHERE token = ? AND expires_at > ? AND used = 0",
-                (token, now)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    email = row[0]
-                    await db.execute("UPDATE magic_tokens SET used = 1 WHERE token = ?", (token,))
-                    await db.commit()
-                    return email
-                return None
+            # Use BEGIN IMMEDIATE for exclusive lock (similar to FOR UPDATE)
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                # SQLite doesn't support FOR UPDATE the same way, but BEGIN IMMEDIATE provides locking
+                async with db.execute(
+                    "SELECT email FROM magic_tokens WHERE token = ? AND expires_at > ? AND used = 0",
+                    (token, now)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        email = row[0]
+                        await db.execute("UPDATE magic_tokens SET used = 1 WHERE token = ?", (token,))
+                        await db.commit()
+                        logger.info("magic_link_verify_success email=%s token=%s... backend=sqlite", email, token_prefix)
+                        return email
+                    else:
+                        # Check if token exists but is expired/used (for logging)
+                        async with db.execute(
+                            "SELECT email, expires_at, used FROM magic_tokens WHERE token = ?",
+                            (token,)
+                        ) as check_cursor:
+                            check_row = await check_cursor.fetchone()
+                            if check_row:
+                                if check_row[2]:  # used
+                                    logger.warning("magic_link_verify_invalid token=%s... reason=already_used backend=sqlite", token_prefix)
+                                elif check_row[1] <= now:  # expires_at
+                                    logger.warning("magic_link_verify_invalid token=%s... reason=expired backend=sqlite", token_prefix)
+                            else:
+                                logger.warning("magic_link_verify_invalid token=%s... reason=not_found backend=sqlite", token_prefix)
+                        await db.commit()
+                        return None
+            except Exception as e:
+                await db.rollback()
+                logger.error("Error verifying magic token: %s", e, exc_info=True)
+                raise
 
 
 async def create_profile(user_id: str, name: str, data: Dict[str, Any]) -> str:

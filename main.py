@@ -4,7 +4,11 @@ import logging
 import hmac
 import os
 import secrets
+import smtplib
 import time
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -97,6 +101,16 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = None
 if OPENAI_AVAILABLE and OPENAI_API_KEY:
     openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# SMTP configuration
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+SMTP_FROM = os.getenv("SMTP_FROM")
+
+# Thread pool for SMTP (smtplib is synchronous)
+_smtp_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="smtp")
 
 ALLOWED_PDF_TYPES = {"application/pdf"}
 ALLOWED_JSON_TYPES = {"application/json", "text/json"}
@@ -518,12 +532,28 @@ async def periodic_cleanup() -> None:
 async def startup_event() -> None:
     ensure_tmp_dir()
     await db.init_db()
+    
+    # Log database backend
+    db_backend = db.get_db_backend_name()
+    if db_backend:
+        logger.info("Database backend: %s", db_backend)
+    else:
+        logger.warning("Database backend not initialized")
+    
     asyncio.create_task(periodic_cleanup())
     if STRIPE_SECRET_KEY:
         stripe.api_key = STRIPE_SECRET_KEY
         logger.info("Stripe API key configured.")
     else:
         logger.info("Stripe not configured; upgrade-to-pro will be disabled.")
+    
+    # Log SMTP configuration status
+    smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
+    if smtp_configured:
+        logger.info("SMTP configured: email delivery enabled")
+    else:
+        logger.info("SMTP not configured: email delivery disabled")
+    
     logger.info("FormFillAI startup complete; temp dir: %s", TMP_DIR)
 
 
@@ -894,20 +924,26 @@ async def get_config() -> JSONResponse:
 
 @app.get("/api/me")
 async def get_me(request: Request) -> JSONResponse:
-    """Get current user authentication status."""
+    """Get current user information including email and plan (free/pro)."""
     user = await get_current_user_async(request)
     if not user:
         return JSONResponse({
             "authenticated": False
         })
     
-    # Check if user is Pro
-    is_pro = get_pro_entitlement_active(request.cookies.get("ffai_pro")) is not None
+    # Check if user is Pro (from Stripe cookie or database)
+    is_pro_cookie = get_pro_entitlement_active(request.cookies.get("ffai_pro")) is not None
+    is_pro_db = user.get("is_pro", False)
+    is_pro = is_pro_cookie or is_pro_db
+    
+    # Determine plan string
+    plan = "pro" if is_pro else "free"
     
     return JSONResponse({
         "authenticated": True,
         "email": user["email"],
-        "isPro": is_pro or user.get("is_pro", False)
+        "plan": plan,
+        "is_pro": is_pro
     })
 
 
@@ -1277,11 +1313,127 @@ async def ai_fix_pdf(
         raise HTTPException(status_code=500, detail="AI correction failed. Please try again.")
 
 
+async def send_email_via_smtp(to_email: str, subject: str, body: str) -> bool:
+    """Send email via SMTP with retry logic. Returns True if successful, False otherwise.
+    
+    Uses connection timeout (10s) and handles all SMTP errors robustly.
+    """
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM]):
+        logger.warning("SMTP not configured: missing required environment variables")
+        return False
+    
+    def _send_sync():
+        """Synchronous SMTP send function to run in thread pool."""
+        try:
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = SMTP_FROM
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            
+            # Add body
+            msg.attach(MIMEText(body, 'html'))
+            
+            # Connect with timeout (10 seconds for connection)
+            # Note: send_message may take additional time, but connection is established within timeout
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+                # Enable TLS with timeout
+                server.starttls()
+                # Login with timeout handling
+                server.login(SMTP_USER, SMTP_PASS)
+                # Send message
+                server.send_message(msg, from_addr=SMTP_FROM, to_addrs=[to_email])
+            
+            return True
+        except (smtplib.SMTPException, smtplib.SMTPAuthenticationError, 
+                smtplib.SMTPConnectError, smtplib.SMTPDataError,
+                smtplib.SMTPHeloError, smtplib.SMTPRecipientsRefused,
+                smtplib.SMTPSenderRefused, smtplib.SMTPServerDisconnected) as e:
+            # Re-raise SMTP-specific exceptions to be caught by retry logic
+            raise
+        except (ConnectionError, TimeoutError, OSError) as e:
+            # Network/connection errors - will be retried
+            raise
+        except Exception as e:
+            # Unexpected errors - log and re-raise for retry logic
+            logger.error("Unexpected error in SMTP send function: %s", e, exc_info=True)
+            raise
+    
+    # Retry logic: up to 3 attempts (initial + 2 retries)
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Run SMTP send in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(_smtp_executor, _send_sync)
+            if result:
+                if attempt > 1:
+                    logger.info("SMTP email sent successfully to %s on attempt %d", to_email, attempt)
+                else:
+                    logger.info("Email sent via SMTP to %s", to_email)
+                return True
+        except (smtplib.SMTPException, smtplib.SMTPAuthenticationError,
+                smtplib.SMTPConnectError, smtplib.SMTPDataError,
+                smtplib.SMTPHeloError, smtplib.SMTPRecipientsRefused,
+                smtplib.SMTPSenderRefused, smtplib.SMTPServerDisconnected) as e:
+            logger.error("SMTP error sending email to %s (attempt %d/%d): %s", to_email, attempt, max_attempts, e)
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error("Connection error sending email to %s (attempt %d/%d): %s", to_email, attempt, max_attempts, e)
+        except Exception as e:
+            logger.error("Unexpected error sending email to %s (attempt %d/%d): %s", to_email, attempt, max_attempts, e, exc_info=True)
+        
+        # If not the last attempt, wait before retrying
+        if attempt < max_attempts:
+            logger.info("Retrying SMTP send to %s in 2 seconds (attempt %d/%d)", to_email, attempt + 1, max_attempts)
+            await asyncio.sleep(2)
+    
+    # All attempts failed
+    logger.error("SMTP send failed to %s after %d attempts", to_email, max_attempts)
+    return False
+
+
+def get_public_base_url(request: Request) -> str:
+    """Get the public base URL for generating magic links.
+    
+    Uses PUBLIC_BASE_URL env var if set, otherwise falls back to request.base_url.
+    Ensures proper URL formatting (no double slashes, proper scheme).
+    """
+    base_url = os.getenv("PUBLIC_BASE_URL")
+    if base_url:
+        # Use env var, ensure it's properly formatted
+        base_url = base_url.rstrip('/')
+    else:
+        # Fallback to request.base_url
+        base_url = str(request.base_url).rstrip('/')
+    
+    # Ensure no double slashes (except after scheme)
+    if '://' in base_url:
+        scheme, rest = base_url.split('://', 1)
+        rest = rest.lstrip('/')
+        base_url = f"{scheme}://{rest}"
+    else:
+        # If no scheme, assume https in production, http in dev
+        if IS_PRODUCTION:
+            base_url = f"https://{base_url.lstrip('/')}"
+        else:
+            base_url = f"http://{base_url.lstrip('/')}"
+    
+    return base_url
+
+
 # Authentication endpoints
 @app.post("/auth/send-magic-link")
 async def send_magic_link(request: Request, email: str = Form(...)) -> JSONResponse:
     """Send magic link email for authentication."""
     try:
+        # Check database availability
+        if not db.is_db_available():
+            logger.error("Database not available for magic link creation")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Database temporarily unavailable. Please try again later."}
+            )
+        
         # Validate email format
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, email):
@@ -1297,16 +1449,30 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
         # Create magic token (always generate, even if SMTP fails)
         token = await db.create_magic_token(email)
         
-        # Build magic link URL
-        base_url = str(request.base_url).rstrip('/')
+        # Build magic link URL using PUBLIC_BASE_URL if available
+        base_url = get_public_base_url(request)
         magic_link = f"{base_url}/auth/verify?token={token}"
         
         # Check if SMTP is configured
-        smtp_enabled = bool(os.getenv("SMTP_HOST"))
+        smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
         
         # In development, always return the link in response for UI display
         if DEBUG or ENV == "dev":
             logger.info("Magic link for %s: %s", email, magic_link)
+            # Try to send via SMTP if configured, but don't fail if it doesn't work
+            if smtp_configured:
+                email_sent = await send_email_via_smtp(
+                    to_email=email,
+                    subject="Sign in to FormFillAI",
+                    body=f"""<html><body><p>Click the link below to sign in:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p></body></html>"""
+                )
+                if email_sent:
+                    logger.info("Email sent via SMTP to %s", email)
+                else:
+                    logger.warning("SMTP error, falling back to log for %s", email)
+            else:
+                logger.info("SMTP not configured, magic link logged")
+            
             return JSONResponse({
                 "success": True,
                 "message": "Magic link generated. Check your email or use the link below.",
@@ -1314,18 +1480,35 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
                 "magicLink": magic_link  # Also include for frontend compatibility
             })
         
+        # In production: log magic link only if SMTP is not configured (for debugging)
+        # Do NOT log in production if SMTP is configured (security)
+        if not smtp_configured:
+            logger.info("SMTP not configured, magic link logged for %s: %s", email, magic_link)
+        
         # In production
-        if smtp_enabled:
-            # TODO: Implement SMTP email sending
-            # For now, log it
-            logger.info("Magic link for %s: %s (SMTP not yet implemented)", email, magic_link)
-            return JSONResponse({
-                "success": True,
-                "message": "Magic link sent to your email."
-            })
+        if smtp_configured:
+            # Send email via SMTP - only return success if email was actually sent
+            email_sent = await send_email_via_smtp(
+                to_email=email,
+                subject="Sign in to FormFillAI",
+                body=f"""<html><body><p>Click the link below to sign in to your FormFillAI account:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p><p>If you didn't request this link, you can safely ignore this email.</p></body></html>"""
+            )
+            
+            if email_sent:
+                # Email was successfully sent via SMTP
+                return JSONResponse({
+                    "success": True,
+                    "message": "Magic link sent to your email."
+                })
+            else:
+                # SMTP failed after all retries - log magic link and return error
+                logger.error("SMTP send failed after retries, magic link logged for %s: %s", email, magic_link)
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Failed to send email. Please try again later or contact support."}
+                )
         else:
-            # SMTP not configured - return 503 (Service Unavailable) but still generate token
-            logger.info("Magic link generated but SMTP not configured for %s", email)
+            # SMTP not configured - return error (magic link already logged above)
             return JSONResponse(
                 status_code=503,
                 content={"detail": "Email service is not configured."}
@@ -1345,6 +1528,11 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
 @app.get("/auth/verify")
 async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     """Verify magic link token and create session."""
+    # Check database availability
+    if not db.is_db_available():
+        logger.error("Database not available for magic link verification")
+        return RedirectResponse(url="/?auth_error=db_unavailable", status_code=303)
+    
     email = await db.verify_magic_token(token)
     if not email:
         return RedirectResponse(url="/?auth_error=invalid_token", status_code=303)
@@ -1359,14 +1547,23 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     # Create session
     session_id = await db.create_session(user_id)
     
+    # Determine if request is HTTPS (check X-Forwarded-Proto for Fly.io proxy)
+    is_https = request.url.scheme == "https"
+    if not is_https:
+        # Check X-Forwarded-Proto header (set by Fly.io proxy)
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+        is_https = forwarded_proto == "https"
+    
     # Set session cookie with proper security settings
-    response = RedirectResponse(url="/?auth_success=1", status_code=303)
+    # Redirect to /app (or /?auth_success=1 for backward compatibility)
+    response = RedirectResponse(url="/app", status_code=303)
     response.set_cookie(
         key="session_id",
         value=session_id,
         httponly=True,
-        secure=IS_PRODUCTION,  # Secure in production, not in dev
+        secure=is_https or IS_PRODUCTION,  # Secure when HTTPS or in production
         samesite="lax",
+        path="/",
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
     return response

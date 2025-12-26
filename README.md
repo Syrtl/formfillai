@@ -67,6 +67,10 @@ export STRIPE_PRICE_ID="price_123..."                     # Recurring price for 
 export STRIPE_WEBHOOK_SECRET="whsec_..."                  # Webhook signing secret from Stripe dashboard
 # Optional, not required for core flow:
 export STRIPE_PUBLISHABLE_KEY="pk_live_or_test_..."
+# Magic link authentication:
+export PUBLIC_BASE_URL="http://127.0.0.1:8000"           # Public base URL for magic links (local dev)
+# For production (e.g., Fly.io):
+# export PUBLIC_BASE_URL="https://formfillai.fly.dev"
 ```
 
 > The app will refuse to start if `APP_SIGNING_SECRET` is missing.  
@@ -105,6 +109,24 @@ stripe listen --forward-to 127.0.0.1:8000/stripe/webhook
   - `invoice.payment_failed`
 - When a subscription is canceled/expired or payments fail, the app adds the subscription id to a small in-memory denylist for 24h so `/stripe/refresh` can quickly reject inactive subs.
 - You can manually hit `GET /stripe/refresh` in the browser to refresh the Pro cookie based on the latest subscription status from Stripe.
+
+## Magic Link Authentication
+
+The app supports email-based authentication via magic links. Configure SMTP settings to enable email delivery:
+
+```bash
+export SMTP_HOST="smtp.resend.com"        # SMTP server hostname
+export SMTP_PORT="587"                     # SMTP port (default: 587)
+export SMTP_USER="resend"                  # SMTP username
+export SMTP_PASS="your_resend_api_key"     # SMTP password/API key
+export SMTP_FROM="noreply@yourdomain.com"  # From email address
+```
+
+**Important:** Set `PUBLIC_BASE_URL` to ensure magic links use the correct scheme (https) and domain:
+- **Local development:** `PUBLIC_BASE_URL=http://127.0.0.1:8000`
+- **Production (Fly.io):** `PUBLIC_BASE_URL=https://formfillai.fly.dev`
+
+If `PUBLIC_BASE_URL` is not set, the app falls back to `request.base_url`, which may be incorrect behind proxies (e.g., returning `http://` instead of `https://`), causing cookie/session issues.
 
 ## Notes
 - Ensure your PDF is a fillable AcroForm. Static PDFs without fields will be rejected.
