@@ -38,32 +38,66 @@ uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers
 
 ### 4. Environment Variables
 
-After deployment, configure these environment variables in Railway:
+After deployment, configure these environment variables in Railway (Settings → Variables):
 
-**Required:**
-- `APP_SIGNING_SECRET` - Secret for signing tokens (generate a strong random string)
+#### Required Variables
 
-**Database (choose one):**
-- `DATABASE_URL` - PostgreSQL connection string (Railway can provision a Postgres database)
-  - Or leave unset to use SQLite (not recommended for production)
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `APP_SIGNING_SECRET` | Secret for signing tokens/cookies. Generate a strong random string (32+ characters). | `your-random-secret-string-here` | ✅ Yes (in production) |
 
-**SMTP (for magic link emails):**
-- `SMTP_HOST` - e.g., `smtp.resend.com`
-- `SMTP_PORT` - e.g., `587`
-- `SMTP_USER` - SMTP username
-- `SMTP_PASS` - SMTP password/API key
-- `SMTP_FROM` - From email address
+**Generate APP_SIGNING_SECRET:**
+```bash
+# On Linux/Mac:
+openssl rand -hex 32
 
-**Public URL (for magic links):**
-- `PUBLIC_BASE_URL` - Your Railway app URL (e.g., `https://formfillai-production.up.railway.app`)
+# Or use Python:
+python -c "import secrets; print(secrets.token_hex(32))"
+```
 
-**Optional:**
-- `STRIPE_SECRET_KEY` - Stripe secret key
-- `STRIPE_PRICE_ID` - Stripe price ID
-- `STRIPE_WEBHOOK_SECRET` - Stripe webhook secret
-- `OPENAI_API_KEY` - OpenAI API key
-- `ENV` - Set to `production` for production mode
-- `DEBUG` - Set to `0` for production
+#### Database Variables
+
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string. Railway auto-sets this when you add a Postgres database. | `postgresql://user:pass@host:port/dbname` | ✅ Yes (recommended) |
+
+**Note:** If `DATABASE_URL` is not set, the app will use SQLite (only in dev mode). In production, Postgres is required.
+
+#### SMTP Variables (for Magic Link Emails)
+
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `SMTP_HOST` | SMTP server hostname | `smtp.resend.com` | ✅ Yes (for email) |
+| `SMTP_PORT` | SMTP server port | `587` | ✅ Yes (for email) |
+| `SMTP_USER` | SMTP username | `resend` | ✅ Yes (for email) |
+| `SMTP_PASS` | SMTP password/API key | `your-resend-api-key` | ✅ Yes (for email) |
+| `SMTP_FROM` | From email address | `noreply@yourdomain.com` | ✅ Yes (for email) |
+
+**Resend SMTP Example:**
+- `SMTP_HOST=smtp.resend.com`
+- `SMTP_PORT=587`
+- `SMTP_USER=resend`
+- `SMTP_PASS=re_xxxxxxxxxxxxx` (your Resend API key)
+- `SMTP_FROM=noreply@yourdomain.com` (must be verified in Resend)
+
+#### Public URL Variable
+
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `PUBLIC_BASE_URL` | Your Railway app's public URL (for magic links). Set this after Railway provides your URL. | `https://formfillai-production.up.railway.app` | ⚠️ Recommended |
+
+**Important:** Set `PUBLIC_BASE_URL` to your Railway app URL to ensure magic links use HTTPS. If not set, the app will try to detect from request headers, but setting it explicitly is recommended.
+
+#### Optional Variables
+
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `ENV` | Environment mode | `production` | ⚠️ Recommended |
+| `DEBUG` | Debug mode (set to 0 in production) | `0` | ⚠️ Recommended |
+| `STRIPE_SECRET_KEY` | Stripe secret key (for Pro subscriptions) | `sk_live_...` or `sk_test_...` | ❌ No |
+| `STRIPE_PRICE_ID` | Stripe price ID for Pro plan | `price_xxxxxxxxxxxxx` | ❌ No |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_xxxxxxxxxxxxx` | ❌ No |
+| `OPENAI_API_KEY` | OpenAI API key (for AI features) | `sk-xxxxxxxxxxxxx` | ❌ No |
 
 ### 5. Add PostgreSQL Database (Recommended)
 

@@ -540,6 +540,13 @@ async def startup_event() -> None:
     else:
         logger.warning("Database backend not initialized")
     
+    # Log PUBLIC_BASE_URL configuration
+    public_base_url = os.getenv("PUBLIC_BASE_URL")
+    if public_base_url:
+        logger.info("PUBLIC_BASE_URL: %s", public_base_url)
+    else:
+        logger.info("PUBLIC_BASE_URL: not set (will use request.base_url)")
+    
     asyncio.create_task(periodic_cleanup())
     if STRIPE_SECRET_KEY:
         stripe.api_key = STRIPE_SECRET_KEY
@@ -1395,7 +1402,8 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> bool:
 def get_public_base_url(request: Request) -> str:
     """Get the public base URL for generating magic links.
     
-    Uses PUBLIC_BASE_URL env var if set, otherwise falls back to request.base_url.
+    In production, prefers PUBLIC_BASE_URL env var.
+    Falls back to request.base_url if PUBLIC_BASE_URL is not set.
     Ensures proper URL formatting (no double slashes, proper scheme).
     """
     base_url = os.getenv("PUBLIC_BASE_URL")
@@ -1403,8 +1411,12 @@ def get_public_base_url(request: Request) -> str:
         # Use env var, ensure it's properly formatted
         base_url = base_url.rstrip('/')
     else:
-        # Fallback to request.base_url
+        # Fallback to request.base_url (check X-Forwarded-Proto for Railway/proxy)
         base_url = str(request.base_url).rstrip('/')
+        # Check X-Forwarded-Proto header for HTTPS behind proxy
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+        if forwarded_proto == "https" and base_url.startswith("http://"):
+            base_url = base_url.replace("http://", "https://", 1)
     
     # Ensure no double slashes (except after scheme)
     if '://' in base_url:
@@ -1527,36 +1539,45 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
 
 @app.get("/auth/verify")
 async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
-    """Verify magic link token and create session."""
+    """Verify magic link token and create session.
+    
+    Validates token, marks it as used, creates session, and sets secure cookie.
+    """
     # Check database availability
     if not db.is_db_available():
         logger.error("Database not available for magic link verification")
         return RedirectResponse(url="/?auth_error=db_unavailable", status_code=303)
     
+    # Verify token (this marks it as used atomically)
     email = await db.verify_magic_token(token)
     if not email:
+        logger.warning("Magic link verification failed for token (first 6 chars): %s", token[:6] if token else "none")
         return RedirectResponse(url="/?auth_error=invalid_token", status_code=303)
+    
+    logger.info("Magic link verified successfully for email: %s", email)
     
     # Get or create user
     user = await db.get_user_by_email(email)
     if not user:
         user_id = await db.create_user(email)
+        logger.info("Created new user for email: %s", email)
     else:
         user_id = user["id"]
     
     # Create session
     session_id = await db.create_session(user_id)
+    logger.info("Session created for user_id: %s", user_id)
     
-    # Determine if request is HTTPS (check X-Forwarded-Proto for Fly.io proxy)
+    # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
     is_https = request.url.scheme == "https"
     if not is_https:
-        # Check X-Forwarded-Proto header (set by Fly.io proxy)
+        # Check X-Forwarded-Proto header (set by Railway/proxy)
         forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
         is_https = forwarded_proto == "https"
     
     # Set session cookie with proper security settings
-    # Redirect to /app (or /?auth_success=1 for backward compatibility)
-    response = RedirectResponse(url="/app", status_code=303)
+    # Redirect to root (/) which will show authenticated state
+    response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
         key="session_id",
         value=session_id,
@@ -1733,6 +1754,24 @@ async def delete_user_data(
 
 
 @app.get("/health")
-async def health() -> Dict[str, str]:
-    return {"status": "ok"}
+async def health() -> Dict[str, Any]:
+    """Health check endpoint with database connectivity status."""
+    db_available = db.is_db_available()
+    db_connected = False
+    
+    if db_available:
+        try:
+            db_connected = await db.check_db_connectivity()
+        except Exception as e:
+            logger.warning("Health check DB connectivity error: %s", e)
+    
+    return {
+        "ok": True,
+        "status": "ok",
+        "database": {
+            "available": db_available,
+            "connected": db_connected,
+            "backend": db.get_db_backend_name() or "unknown"
+        }
+    }
 

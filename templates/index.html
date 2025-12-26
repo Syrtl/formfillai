@@ -745,6 +745,22 @@
             font-weight: 500;
             color: var(--text);
         }
+        .user-pill .plan-badge {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .user-pill .plan-badge.free {
+            background: #e2e8f0;
+            color: #475569;
+        }
+        .user-pill .plan-badge.pro {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
         .user-pill .chevron {
             font-size: 0.7rem;
             color: var(--text-muted);
@@ -947,6 +963,7 @@
                         <div id="auth-logged-in" style="display: none;">
                             <div class="user-pill" id="user-pill">
                                 <span class="email" id="user-email"></span>
+                                <span class="plan-badge" id="plan-badge" style="display: none;"></span>
                                 <span class="chevron">▼</span>
                             </div>
                             <div class="user-dropdown" id="user-dropdown">
@@ -1276,7 +1293,8 @@
                     authState = {
                         authenticated: data.authenticated || false,
                         email: data.email || null,
-                        isPro: data.isPro || false
+                        isPro: data.is_pro || data.isPro || false,
+                        plan: data.plan || (data.is_pro || data.isPro ? 'pro' : 'free')
                     };
                     updateAuthUI();
                     if (authState.authenticated) {
@@ -1292,12 +1310,20 @@
         
         // Update auth UI
         function updateAuthUI() {
+            const planBadgeEl = document.getElementById('plan-badge');
             if (authState.authenticated && authState.email) {
                 // User is logged in
                 if (authLoggedOut) authLoggedOut.style.display = 'none';
                 if (authLoggedIn) {
                     authLoggedIn.style.display = 'block';
                     if (userEmailEl) userEmailEl.textContent = authState.email;
+                    // Show plan badge
+                    if (planBadgeEl) {
+                        const plan = authState.plan || (authState.isPro ? 'pro' : 'free');
+                        planBadgeEl.textContent = plan === 'pro' ? 'Pro' : 'Free';
+                        planBadgeEl.className = 'plan-badge ' + (plan === 'pro' ? 'pro' : 'free');
+                        planBadgeEl.style.display = 'inline-block';
+                    }
                 }
                 if (profileSelectorContainer && userProfiles.length > 0) {
                     profileSelectorContainer.style.display = 'block';
@@ -1306,6 +1332,7 @@
                 // User is not logged in - show sign in button
                 if (authLoggedOut) authLoggedOut.style.display = 'block';
                 if (authLoggedIn) authLoggedIn.style.display = 'none';
+                if (planBadgeEl) planBadgeEl.style.display = 'none';
                 if (profileSelectorContainer) profileSelectorContainer.style.display = 'none';
                 userProfiles = [];
             }

@@ -44,14 +44,21 @@ CANONICAL_FIELDS = {
 
 async def init_db() -> None:
     """Initialize database tables and connection pool.
-    Reads DATABASE_URL at runtime (not import time) to support Fly.io secrets.
+    Reads DATABASE_URL at runtime (not import time) to support Railway/Fly.io secrets.
     
-    When DATABASE_URL is set, Postgres is REQUIRED - retries for ~60 seconds with exponential backoff.
-    If Postgres connection fails after retries, raises exception (no SQLite fallback).
+    When DATABASE_URL is set:
+    - In production: Postgres is REQUIRED - retries 5 times with short backoff.
+      If Postgres fails, raises exception (no SQLite fallback).
+    - In dev: Postgres is preferred, but falls back to SQLite if Postgres fails.
     
-    SQLite is only used when DATABASE_URL is not set.
+    SQLite is only used when DATABASE_URL is not set, or in dev mode if Postgres fails.
     """
     global _pg_pool, _USE_POSTGRES, DB_PATH, _DB_BACKEND_NAME
+    
+    # Check if we're in production
+    env = os.getenv("ENV", "").lower()
+    debug = os.getenv("DEBUG", "0") == "1"
+    is_production = env == "production" or (env != "dev" and not debug)
     
     # Read DATABASE_URL at runtime (not import time)
     database_url = os.getenv("DATABASE_URL")
@@ -121,11 +128,10 @@ async def init_db() -> None:
         logger.info("Attempting Postgres connection with retry logic (max ~60s)")
         logger.info("asyncpg.create_pool kwargs: %s", log_kwargs)
         
-        # Retry logic: ~60 seconds total with exponential backoff + jitter
-        max_attempts = 10
+        # Retry logic: 5 attempts with short backoff (faster startup)
+        max_attempts = 5
         base_delay = 1.0  # Start with 1 second
-        max_delay = 8.0   # Cap at 8 seconds
-        total_timeout = 60.0  # Total timeout ~60 seconds
+        max_delay = 3.0   # Cap at 3 seconds
         
         last_exception = None
         for attempt in range(1, max_attempts + 1):
@@ -157,12 +163,19 @@ async def init_db() -> None:
                     # Last attempt failed
                     logger.error("Postgres connection failed after %d attempts", max_attempts)
                     logger.exception("Final Postgres connection error")
-                    raise RuntimeError(
-                        f"Failed to connect to Postgres after {max_attempts} attempts. "
-                        f"Last error: {repr(e)}. "
-                        "When DATABASE_URL is set, Postgres is required. "
-                        "Check your DATABASE_URL and Postgres server availability."
-                    ) from e
+                    if is_production:
+                        # In production, fail fast - no SQLite fallback
+                        raise RuntimeError(
+                            f"Failed to connect to Postgres after {max_attempts} attempts. "
+                            f"Last error: {repr(e)}. "
+                            "When DATABASE_URL is set in production, Postgres is required. "
+                            "Check your DATABASE_URL and Postgres server availability."
+                        ) from e
+                    else:
+                        # In dev, allow SQLite fallback
+                        logger.warning("Postgres connection failed in dev mode, falling back to SQLite")
+                        _USE_POSTGRES = False
+                        break  # Break out of retry loop to fall through to SQLite
         
         # Should never reach here, but just in case
         if last_exception:
@@ -170,14 +183,17 @@ async def init_db() -> None:
                 f"Failed to connect to Postgres. Last error: {repr(last_exception)}"
             ) from last_exception
     
-    # No DATABASE_URL - use SQLite (only allowed when DATABASE_URL is not set)
-    _USE_POSTGRES = False
-    _DB_BACKEND_NAME = "sqlite"
-    DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Using SQLite (DATABASE_URL not set)")
-    logger.info("DB backend: sqlite")
-    await _init_sqlite_tables()
+    # Fallback to SQLite (only if Postgres not available or connection failed in dev)
+    if not _USE_POSTGRES:
+        _DB_BACKEND_NAME = "sqlite"
+        DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if database_url:
+            logger.info("Using SQLite (Postgres connection failed in dev mode)")
+        else:
+            logger.info("Using SQLite (DATABASE_URL not set)")
+        logger.info("DB backend: sqlite")
+        await _init_sqlite_tables()
 
 
 async def _init_postgres_tables(conn) -> None:
@@ -260,6 +276,29 @@ def is_db_available() -> bool:
 def get_db_backend_name() -> Optional[str]:
     """Get the name of the current database backend (postgres or sqlite)."""
     return _DB_BACKEND_NAME
+
+
+async def check_db_connectivity() -> bool:
+    """Check if database is actually reachable by performing a simple query.
+    Returns True if database is reachable, False otherwise.
+    """
+    try:
+        if _USE_POSTGRES:
+            if _pg_pool is None:
+                return False
+            async with _pg_pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            return True
+        else:
+            if DB_PATH is None or not DB_PATH.exists():
+                return False
+            async with aiosqlite.connect(DB_PATH) as db_conn:
+                async with db_conn.execute("SELECT 1") as cursor:
+                    await cursor.fetchone()
+            return True
+    except Exception as e:
+        logger.warning("Database connectivity check failed: %s", e)
+        return False
 
 
 async def _init_sqlite_tables() -> None:
