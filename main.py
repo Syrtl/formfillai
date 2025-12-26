@@ -1517,7 +1517,7 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
         base_url = get_public_base_url(request)
         magic_link = f"{base_url}/auth/verify?token={token}"
         
-        # Check if SMTP is configured
+        # Check if SMTP is configured (all required vars must be present)
         smtp_configured = all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM])
         
         # In development, always return the link in response for UI display
@@ -1544,12 +1544,7 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
                 "magicLink": magic_link  # Also include for frontend compatibility
             })
         
-        # In production: log magic link only if SMTP is not configured (for debugging)
-        # Do NOT log in production if SMTP is configured (security)
-        if not smtp_configured:
-            logger.info("SMTP not configured, magic link logged for %s: %s", email, magic_link)
-        
-        # In production
+        # In production: ensure SMTP is used when configured
         if smtp_configured:
             # Send email via SMTP - only return success if email was actually sent
             email_sent = await send_email_via_smtp(
@@ -1565,17 +1560,18 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP failed after all retries - log magic link and return error
-                logger.error("SMTP send failed after retries, magic link logged for %s: %s", email, magic_link)
+                # SMTP failed after all retries - return error
+                logger.error("SMTP send failed after retries for %s", email)
                 return JSONResponse(
                     status_code=503,
                     content={"detail": "Failed to send email. Please try again later or contact support."}
                 )
         else:
-            # SMTP not configured - return error (magic link already logged above)
+            # SMTP not configured - return clear error (DO NOT claim email was sent)
+            logger.warning("SMTP not configured: missing required variables (SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM)")
             return JSONResponse(
                 status_code=503,
-                content={"detail": "Email service is not configured."}
+                content={"detail": "Email service is not configured. Please configure SMTP settings to enable sign-in."}
             )
     except HTTPException:
         # Re-raise HTTP exceptions (400, etc.)
