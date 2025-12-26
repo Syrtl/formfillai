@@ -872,14 +872,14 @@ async def extract_fields(
                 filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
-    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
-        except HTTPException as e:
+        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-    pdf_bytes = await read_upload_file(pdf_file)
+        pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
@@ -895,10 +895,10 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-    
-    try:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        fields_metadata = extract_field_metadata(reader)
+        
+        try:
+            reader = PdfReader(BytesIO(pdf_bytes))
+            fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -922,14 +922,14 @@ async def extract_fields(
                     "size": file_size
                 }
             })
-    except HTTPException:
-        raise
-    except Exception as exc:
+        except HTTPException:
+            raise
+        except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-        raise HTTPException(
+            raise HTTPException(
                 status_code=422,
-            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -2228,8 +2228,8 @@ async def debug_last_magic_link() -> JSONResponse:
         })
 
 
-@app.get("/debug/email/test")
-async def debug_email_test(request: Request, to: str) -> JSONResponse:
+@app.get("/debug/send-test-email")
+async def debug_send_test_email(request: Request, to: str) -> JSONResponse:
     """Test email endpoint - sends a simple test email (dev mode only, no secrets in logs).
     
     In production, returns 404.
@@ -2242,7 +2242,7 @@ async def debug_email_test(request: Request, to: str) -> JSONResponse:
     if not smtp_config["configured"]:
         return JSONResponse(
             status_code=503,
-            content={"detail": f"SMTP not configured. Missing: {', '.join(smtp_config['missing_keys'])}"}
+            content={"ok": False, "detail": f"SMTP not configured. Missing: {', '.join(smtp_config['missing_keys'])}"}
         )
     
     # Send test email
@@ -2260,14 +2260,15 @@ async def debug_email_test(request: Request, to: str) -> JSONResponse:
         })
     else:
         logger.error("Test email failed to %s: %s", to, error_msg)
+        safe_error = error_msg[:200] if error_msg else "Failed to send test email"
         return JSONResponse(
             status_code=503,
-            content={"detail": error_msg or "Failed to send test email"}
+            content={"ok": False, "detail": safe_error}
         )
 
 
-@app.get("/debug/email/test")
-async def debug_email_test(request: Request, to: str) -> JSONResponse:
+@app.get("/debug/send-test-email")
+async def debug_send_test_email(request: Request, to: str) -> JSONResponse:
     """Test email endpoint - sends a simple test email (dev mode only, no secrets in logs).
     
     In production, returns 404.
@@ -2280,7 +2281,7 @@ async def debug_email_test(request: Request, to: str) -> JSONResponse:
     if not smtp_config["configured"]:
         return JSONResponse(
             status_code=503,
-            content={"detail": f"SMTP not configured. Missing: {', '.join(smtp_config['missing_keys'])}"}
+            content={"ok": False, "detail": f"SMTP not configured. Missing: {', '.join(smtp_config['missing_keys'])}"}
         )
     
     # Send test email
@@ -2298,9 +2299,10 @@ async def debug_email_test(request: Request, to: str) -> JSONResponse:
         })
     else:
         logger.error("Test email failed to %s: %s", to, error_msg)
+        safe_error = error_msg[:200] if error_msg else "Failed to send test email"
         return JSONResponse(
             status_code=503,
-            content={"detail": error_msg or "Failed to send test email"}
+            content={"ok": False, "detail": safe_error}
         )
 
 
