@@ -873,7 +873,7 @@ async def extract_fields(
     
     try:
     validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
-    except HTTPException as e:
+        except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
