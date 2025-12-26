@@ -8,6 +8,7 @@ import smtplib
 import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import parseaddr
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from io import BytesIO
@@ -103,12 +104,27 @@ openai_client = None
 if OPENAI_AVAILABLE and OPENAI_API_KEY:
     openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# SMTP configuration
+# SMTP configuration - support multiple naming variants
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-SMTP_FROM = os.getenv("SMTP_FROM")
+# Support both SMTP_USER and SMTP_USERNAME
+SMTP_USER = os.getenv("SMTP_USER") or os.getenv("SMTP_USERNAME")
+# Support both SMTP_PASS and SMTP_PASSWORD
+SMTP_PASS = os.getenv("SMTP_PASS") or os.getenv("SMTP_PASSWORD")
+# Support both SMTP_FROM and EMAIL_FROM
+SMTP_FROM_RAW = os.getenv("SMTP_FROM") or os.getenv("EMAIL_FROM")
+
+# Extract email from "Name <email>" format if needed
+def extract_email_from_string(email_str: Optional[str]) -> Optional[str]:
+    """Extract email address from string, handling 'Name <email>' format."""
+    if not email_str:
+        return None
+    # Use email.utils.parseaddr to extract email from "Name <email>" format
+    name, email = parseaddr(email_str)
+    # If parseaddr found an email, use it; otherwise use the original string
+    return email if email else email_str
+
+SMTP_FROM = extract_email_from_string(SMTP_FROM_RAW)
 
 # Thread pool for SMTP (smtplib is synchronous)
 _smtp_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="smtp")
@@ -569,15 +585,25 @@ async def startup_event() -> None:
         logger.info("Stripe not configured; upgrade-to-pro will be disabled.")
     
     # Log SMTP configuration status (booleans only, never values)
+    # Check all possible naming variants
     smtp_host_set = bool(SMTP_HOST)
     smtp_port_set = bool(SMTP_PORT)
     smtp_user_set = bool(SMTP_USER)
+    smtp_user_alt_set = bool(os.getenv("SMTP_USERNAME"))
     smtp_pass_set = bool(SMTP_PASS)
+    smtp_pass_alt_set = bool(os.getenv("SMTP_PASSWORD"))
     smtp_from_set = bool(SMTP_FROM)
+    smtp_from_alt_set = bool(os.getenv("EMAIL_FROM"))
+    smtp_from_raw_set = bool(SMTP_FROM_RAW)
+    
     smtp_configured = all([smtp_host_set, smtp_user_set, smtp_pass_set, smtp_from_set])
     
-    logger.info("SMTP configuration: HOST=%s PORT=%s USER=%s PASS=%s FROM=%s",
-                smtp_host_set, smtp_port_set, smtp_user_set, smtp_pass_set, smtp_from_set)
+    # Log chosen from_email string length (not the value)
+    from_email_length = len(SMTP_FROM) if SMTP_FROM else 0
+    
+    logger.info("SMTP configuration: HOST=%s PORT=%s USER=%s USERNAME=%s PASS=%s PASSWORD=%s FROM=%s EMAIL_FROM=%s FROM_LENGTH=%d",
+                smtp_host_set, smtp_port_set, smtp_user_set, smtp_user_alt_set, 
+                smtp_pass_set, smtp_pass_alt_set, smtp_from_set, smtp_from_alt_set, from_email_length)
     if smtp_configured:
         logger.info("SMTP configured: email delivery enabled")
     else:
@@ -1385,21 +1411,27 @@ async def ai_fix_pdf(
         raise HTTPException(status_code=500, detail="AI correction failed. Please try again.")
 
 
-async def send_email_via_smtp(to_email: str, subject: str, body: str) -> bool:
-    """Send email via SMTP with retry logic. Returns True if successful, False otherwise.
+async def send_email_via_smtp(to_email: str, subject: str, body: str) -> Tuple[bool, Optional[str]]:
+    """Send email via SMTP with retry logic. 
+    
+    Returns:
+        Tuple[bool, Optional[str]]: (success, error_message)
+        - If successful: (True, None)
+        - If failed: (False, safe_error_message)
     
     Uses connection timeout (10s) and handles all SMTP errors robustly.
     """
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM]):
         logger.warning("SMTP not configured: missing required environment variables")
-        return False
+        return (False, "SMTP not configured: missing required environment variables")
     
     def _send_sync():
         """Synchronous SMTP send function to run in thread pool."""
         try:
             # Create message
             msg = MIMEMultipart()
-            msg['From'] = SMTP_FROM
+            # Use raw FROM if available (supports "Name <email>"), otherwise use extracted email
+            msg['From'] = SMTP_FROM_RAW if SMTP_FROM_RAW else SMTP_FROM
             msg['To'] = to_email
             msg['Subject'] = subject
             
@@ -1413,10 +1445,10 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> bool:
                 server.starttls()
                 # Login with timeout handling
                 server.login(SMTP_USER, SMTP_PASS)
-                # Send message
+                # Send message - use extracted email for from_addr
                 server.send_message(msg, from_addr=SMTP_FROM, to_addrs=[to_email])
             
-            return True
+            return (True, None)
         except (smtplib.SMTPException, smtplib.SMTPAuthenticationError, 
                 smtplib.SMTPConnectError, smtplib.SMTPDataError,
                 smtplib.SMTPHeloError, smtplib.SMTPRecipientsRefused,
@@ -1433,25 +1465,41 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> bool:
     
     # Retry logic: up to 3 attempts (initial + 2 retries)
     max_attempts = 3
+    last_error = None
     for attempt in range(1, max_attempts + 1):
         try:
             # Run SMTP send in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(_smtp_executor, _send_sync)
-            if result:
+            if result[0]:  # result is now a tuple (bool, Optional[str])
                 if attempt > 1:
                     logger.info("SMTP email sent successfully to %s on attempt %d", to_email, attempt)
                 else:
                     logger.info("Email sent via SMTP to %s", to_email)
-                return True
+                return (True, None)
         except (smtplib.SMTPException, smtplib.SMTPAuthenticationError,
                 smtplib.SMTPConnectError, smtplib.SMTPDataError,
                 smtplib.SMTPHeloError, smtplib.SMTPRecipientsRefused,
                 smtplib.SMTPSenderRefused, smtplib.SMTPServerDisconnected) as e:
+            # Create safe error message (no sensitive data)
+            error_msg = f"SMTP error: {type(e).__name__}"
+            if hasattr(e, 'smtp_code') and e.smtp_code:
+                error_msg += f" (code {e.smtp_code})"
+            if hasattr(e, 'smtp_error') and e.smtp_error:
+                # Only include first line of error, sanitized
+                error_line = str(e.smtp_error).split('\n')[0][:100]
+                error_msg += f": {error_line}"
+            last_error = error_msg
             logger.error("SMTP error sending email to %s (attempt %d/%d): %s", to_email, attempt, max_attempts, e)
         except (ConnectionError, TimeoutError, OSError) as e:
+            error_msg = f"Connection error: {type(e).__name__}"
+            if str(e):
+                error_msg += f": {str(e)[:100]}"
+            last_error = error_msg
             logger.error("Connection error sending email to %s (attempt %d/%d): %s", to_email, attempt, max_attempts, e)
         except Exception as e:
+            error_msg = f"Unexpected error: {type(e).__name__}"
+            last_error = error_msg
             logger.error("Unexpected error sending email to %s (attempt %d/%d): %s", to_email, attempt, max_attempts, e, exc_info=True)
         
         # If not the last attempt, wait before retrying
@@ -1459,9 +1507,9 @@ async def send_email_via_smtp(to_email: str, subject: str, body: str) -> bool:
             logger.info("Retrying SMTP send to %s in 2 seconds (attempt %d/%d)", to_email, attempt + 1, max_attempts)
             await asyncio.sleep(2)
     
-    # All attempts failed
-    logger.error("SMTP send failed to %s after %d attempts", to_email, max_attempts)
-    return False
+    # All attempts failed - return the last error message
+    logger.error("SMTP send failed to %s after %d attempts: %s", to_email, max_attempts, last_error)
+    return (False, last_error or "Failed to send email after multiple attempts")
 
 
 def get_public_base_url(request: Request) -> str:
@@ -1538,7 +1586,7 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
             logger.info("Magic link for %s: %s", email, magic_link)
             # Try to send via SMTP if configured, but don't fail if it doesn't work
             if smtp_configured:
-                email_sent = await send_email_via_smtp(
+                email_sent, error_msg = await send_email_via_smtp(
                     to_email=email,
                     subject="Sign in to FormFillAI",
                     body=f"""<html><body><p>Click the link below to sign in:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p></body></html>"""
@@ -1546,7 +1594,7 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
                 if email_sent:
                     logger.info("Email sent via SMTP to %s", email)
                 else:
-                    logger.warning("SMTP error, falling back to log for %s", email)
+                    logger.warning("SMTP error, falling back to log for %s: %s", email, error_msg)
             else:
                 logger.info("SMTP not configured, magic link logged")
             
@@ -1560,7 +1608,7 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
         # In production: ensure SMTP is used when configured
         if smtp_configured:
             # Send email via SMTP - only return success if email was actually sent
-            email_sent = await send_email_via_smtp(
+            email_sent, error_msg = await send_email_via_smtp(
                 to_email=email,
                 subject="Sign in to FormFillAI",
                 body=f"""<html><body><p>Click the link below to sign in to your FormFillAI account:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p><p>If you didn't request this link, you can safely ignore this email.</p></body></html>"""
@@ -1573,11 +1621,11 @@ async def send_magic_link(request: Request, email: str = Form(...)) -> JSONRespo
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP failed after all retries - return error
-                logger.error("SMTP send failed after retries for %s", email)
+                # SMTP vars are present but sending failed - return the real error (safe)
+                logger.error("SMTP send failed after retries for %s: %s", email, error_msg)
                 return JSONResponse(
                     status_code=503,
-                    content={"detail": "Failed to send email. Please try again later or contact support."}
+                    content={"detail": error_msg or "Failed to send email. Please try again later or contact support."}
                 )
         else:
             # SMTP not configured - return clear error (DO NOT claim email was sent)
