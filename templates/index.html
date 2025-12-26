@@ -2001,13 +2001,15 @@
                     fieldsContainer.style.display = 'none';
                     submitBtn.style.display = 'none';
                 } else {
+                    // Success - render fields
+                    const count = currentFields.length;
+                    console.log('Fields found:', count);
                     renderFields(currentFields);
                     fieldsContainer.style.display = 'block';
                     submitBtn.style.display = 'block';
-                    const count = currentFields.length;
                     fieldsSummary.textContent = count === 1 ? t('fields_found', {count}) : t('fields_found_plural', {count});
-                    setStatus(count === 1 ? t('fields_found_message', {count}) : t('fields_found_message_plural', {count}), false, true);
-                    showToast(`Found ${count} field${count !== 1 ? 's' : ''}`, 'success');
+                    setStatus(`Fields found: ${count}`, false, true);
+                    showToast(`Fields found: ${count}`, 'success');
                 }
             } catch (err) {
                 console.error('Analyze PDF error:', err);
