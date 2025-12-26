@@ -46,12 +46,15 @@ async def init_db() -> None:
     """Initialize database tables and connection pool.
     Reads DATABASE_URL at runtime (not import time) to support Railway/Fly.io secrets.
     
-    When DATABASE_URL is set:
-    - In production: Postgres is REQUIRED - retries 5 times with short backoff.
-      If Postgres fails, raises exception (no SQLite fallback).
-    - In dev: Postgres is preferred, but falls back to SQLite if Postgres fails.
+    Production behavior (ENV=production or DEBUG=0):
+    - DATABASE_URL is REQUIRED - app will refuse to start if missing
+    - Postgres is REQUIRED - app will refuse to start if connection fails
+    - No SQLite fallback allowed
     
-    SQLite is only used when DATABASE_URL is not set, or in dev mode if Postgres fails.
+    Development behavior (ENV=dev or DEBUG=1):
+    - DATABASE_URL is optional
+    - Postgres is preferred, but falls back to SQLite if Postgres fails
+    - SQLite is used when DATABASE_URL is not set
     """
     global _pg_pool, _USE_POSTGRES, DB_PATH, _DB_BACKEND_NAME
     
@@ -60,8 +63,19 @@ async def init_db() -> None:
     debug = os.getenv("DEBUG", "0") == "1"
     is_production = env == "production" or (env != "dev" and not debug)
     
-    # Read DATABASE_URL at runtime (not import time)
+    # Log environment and DATABASE_URL status
     database_url = os.getenv("DATABASE_URL")
+    database_url_set = bool(database_url)
+    
+    logger.info("Environment: ENV=%s DEBUG=%s IS_PRODUCTION=%s", env or "not set", debug, is_production)
+    logger.info("DATABASE_URL: %s", "set" if database_url_set else "not set")
+    
+    # In production, DATABASE_URL is REQUIRED
+    if is_production and not database_url_set:
+        raise RuntimeError(
+            "DATABASE_URL is required in production (ENV=production or DEBUG=0). "
+            "Please add a PostgreSQL database and set DATABASE_URL environment variable."
+        )
     
     if database_url:
         # DATABASE_URL is set - Postgres is REQUIRED, no fallback to SQLite
@@ -183,15 +197,23 @@ async def init_db() -> None:
                 f"Failed to connect to Postgres. Last error: {repr(last_exception)}"
             ) from last_exception
     
-    # Fallback to SQLite (only if Postgres not available or connection failed in dev)
+    # Fallback to SQLite (only allowed in dev mode)
     if not _USE_POSTGRES:
+        if is_production:
+            # This should never happen if production checks above worked, but double-check
+            raise RuntimeError(
+                "SQLite is not allowed in production. "
+                "Postgres connection failed and SQLite fallback is disabled in production mode."
+            )
+        
+        # Dev mode: allow SQLite fallback
         _DB_BACKEND_NAME = "sqlite"
         DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         if database_url:
-            logger.info("Using SQLite (Postgres connection failed in dev mode)")
+            logger.warning("Using SQLite (Postgres connection failed in dev mode)")
         else:
-            logger.info("Using SQLite (DATABASE_URL not set)")
+            logger.info("Using SQLite (DATABASE_URL not set, dev mode)")
         logger.info("DB backend: sqlite")
         await _init_sqlite_tables()
 

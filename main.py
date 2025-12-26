@@ -532,19 +532,30 @@ async def periodic_cleanup() -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     ensure_tmp_dir()
+    
+    # Log environment configuration
+    logger.info("=== FormFillAI Startup ===")
+    logger.info("Environment: ENV=%s DEBUG=%s IS_PRODUCTION=%s", 
+                ENV or "not set", DEBUG, IS_PRODUCTION)
+    
+    # Initialize database (this will log DATABASE_URL status and backend)
     await db.init_db()
     
-    # Log database backend
+    # Log database backend (after init_db which sets it)
     db_backend = db.get_db_backend_name()
     if db_backend:
-        logger.info("Database backend: %s", db_backend)
+        logger.info("Selected DB backend: %s", db_backend)
+        if IS_PRODUCTION and db_backend != "postgres":
+            logger.error("CRITICAL: Production requires Postgres but backend is %s", db_backend)
+            raise RuntimeError(f"Production requires Postgres backend, but {db_backend} is active")
     else:
-        logger.warning("Database backend not initialized")
+        logger.error("Database backend not initialized")
+        raise RuntimeError("Database backend initialization failed")
     
     # Log PUBLIC_BASE_URL configuration
     public_base_url = os.getenv("PUBLIC_BASE_URL")
     if public_base_url:
-        logger.info("PUBLIC_BASE_URL: %s", public_base_url)
+        logger.info("PUBLIC_BASE_URL: set")
     else:
         logger.info("PUBLIC_BASE_URL: not set (will use request.base_url)")
     
@@ -1806,6 +1817,7 @@ async def health() -> Dict[str, Any]:
     """Health check endpoint with database connectivity status."""
     db_available = db.is_db_available()
     db_connected = False
+    db_backend = db.get_db_backend_name() or "unknown"
     
     if db_available:
         try:
@@ -1813,13 +1825,17 @@ async def health() -> Dict[str, Any]:
         except Exception as e:
             logger.warning("Health check DB connectivity error: %s", e)
     
+    # In production, verify Postgres is being used
+    if IS_PRODUCTION and db_backend != "postgres":
+        logger.error("Health check: Production requires Postgres but backend is %s", db_backend)
+    
     return {
         "ok": True,
         "status": "ok",
         "database": {
             "available": db_available,
             "connected": db_connected,
-            "backend": db.get_db_backend_name() or "unknown"
+            "backend": db_backend
         }
     }
 

@@ -54,15 +54,33 @@ sh -c 'uvicorn main:app --host 0.0.0.0 --port "$PORT" --proxy-headers'
 - Sets the `PORT` environment variable automatically
 - Uses the start command from `nixpacks.toml` or `Procfile`
 
-### 4. Environment Variables
+### 4. Add PostgreSQL Database (REQUIRED for Production)
+
+**IMPORTANT:** Production requires PostgreSQL. SQLite is not allowed in production.
+
+1. In your Railway project, click **"+ New"**
+2. Select **"Database"** → **"Add PostgreSQL"**
+3. Railway will automatically set the `DATABASE_URL` environment variable
+4. The app will automatically connect to Postgres on next deploy
+5. **Verify:** Check startup logs to confirm `DB backend: postgres`
+
+**If DATABASE_URL is missing in production:**
+- The app will refuse to start with error: "DATABASE_URL is required in production"
+- Add a PostgreSQL database via Railway dashboard
+
+### 5. Environment Variables
 
 After deployment, configure these environment variables in Railway (Settings → Variables):
 
-#### Required Variables
+#### Required Variables (Production)
 
 | Variable Name | Description | Example Value | Required |
 |--------------|-------------|---------------|----------|
-| `APP_SIGNING_SECRET` | Secret for signing tokens/cookies. Generate a strong random string (32+ characters). | `your-random-secret-string-here` | ✅ Yes (in production) |
+| `ENV` | Environment mode. Set to `production` for production. | `production` | ✅ Yes |
+| `DEBUG` | Debug mode. Set to `0` in production. | `0` | ✅ Yes |
+| `APP_SIGNING_SECRET` | Secret for signing tokens/cookies. Generate a strong random string (32+ characters). | `your-random-secret-string-here` | ✅ Yes |
+| `DATABASE_URL` | PostgreSQL connection string. **Auto-set by Railway when you add Postgres database.** | `postgresql://user:pass@host:port/dbname` | ✅ Yes (auto-set) |
+| `PUBLIC_BASE_URL` | Your Railway app's public URL (for magic links). Set this after Railway provides your URL. | `https://formfillai-production.up.railway.app` | ✅ Yes |
 
 **Generate APP_SIGNING_SECRET:**
 ```bash
@@ -81,15 +99,15 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 **Note:** If `DATABASE_URL` is not set, the app will use SQLite (only in dev mode). In production, Postgres is required.
 
-#### SMTP Variables (for Magic Link Emails)
+#### SMTP Variables (Required for Sign-In)
 
 | Variable Name | Description | Example Value | Required |
 |--------------|-------------|---------------|----------|
-| `SMTP_HOST` | SMTP server hostname | `smtp.resend.com` | ✅ Yes (for email) |
-| `SMTP_PORT` | SMTP server port | `587` | ✅ Yes (for email) |
-| `SMTP_USER` | SMTP username | `resend` | ✅ Yes (for email) |
-| `SMTP_PASS` | SMTP password/API key | `your-resend-api-key` | ✅ Yes (for email) |
-| `SMTP_FROM` | From email address | `noreply@yourdomain.com` | ✅ Yes (for email) |
+| `SMTP_HOST` | SMTP server hostname | `smtp.resend.com` | ✅ Yes |
+| `SMTP_PORT` | SMTP server port | `587` | ✅ Yes |
+| `SMTP_USER` | SMTP username | `resend` | ✅ Yes |
+| `SMTP_PASS` | SMTP password/API key | `your-resend-api-key` | ✅ Yes |
+| `SMTP_FROM` | From email address | `noreply@yourdomain.com` | ✅ Yes |
 
 **Resend SMTP Example:**
 - `SMTP_HOST=smtp.resend.com`
@@ -98,11 +116,6 @@ python -c "import secrets; print(secrets.token_hex(32))"
 - `SMTP_PASS=re_xxxxxxxxxxxxx` (your Resend API key)
 - `SMTP_FROM=noreply@yourdomain.com` (must be verified in Resend)
 
-#### Public URL Variable
-
-| Variable Name | Description | Example Value | Required |
-|--------------|-------------|---------------|----------|
-| `PUBLIC_BASE_URL` | Your Railway app's public URL (for magic links). Set this after Railway provides your URL. | `https://formfillai-production.up.railway.app` | ⚠️ Recommended |
 
 **Important:** Set `PUBLIC_BASE_URL` to your Railway app URL to ensure magic links use HTTPS. If not set, the app will try to detect from request headers, but setting it explicitly is recommended.
 
@@ -117,13 +130,6 @@ python -c "import secrets; print(secrets.token_hex(32))"
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_xxxxxxxxxxxxx` | ❌ No |
 | `OPENAI_API_KEY` | OpenAI API key (for AI features) | `sk-xxxxxxxxxxxxx` | ❌ No |
 
-### 5. Add PostgreSQL Database (Recommended)
-
-1. In your Railway project, click **"+ New"**
-2. Select **"Database"** → **"Add PostgreSQL"**
-3. Railway will automatically set the `DATABASE_URL` environment variable
-4. The app will automatically connect to Postgres on next deploy
-
 ### 6. Get Your App URL
 
 1. After deployment, Railway will provide a URL like: `https://formfillai-production.up.railway.app`
@@ -133,10 +139,21 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ### 7. Verify Deployment
 
 1. Visit your Railway app URL
-2. Check logs in Railway dashboard for:
-   - `DB backend: postgres` (if DATABASE_URL is set)
-   - `SMTP configured: email delivery enabled` (if SMTP vars are set)
-3. Test the magic link authentication flow
+2. Check startup logs in Railway dashboard for:
+   - `Environment: ENV=production DEBUG=False IS_PRODUCTION=True`
+   - `DATABASE_URL: set`
+   - `Selected DB backend: postgres` (must be postgres in production)
+   - `SMTP configuration: HOST=True PORT=True USER=True PASS=True FROM=True`
+   - `SMTP configured: email delivery enabled`
+3. Check `/health` endpoint - should return `"backend": "postgres"`
+4. Test the magic link authentication flow
+
+**Production Requirements Checklist:**
+- ✅ `ENV=production` or `DEBUG=0`
+- ✅ `DATABASE_URL` is set (auto-set by Railway Postgres)
+- ✅ `DB backend: postgres` in logs (not sqlite)
+- ✅ `PUBLIC_BASE_URL` is set to your Railway app URL
+- ✅ All SMTP variables are set for sign-in
 
 ## Troubleshooting
 
@@ -164,10 +181,21 @@ python -c "import secrets; print(secrets.token_hex(32))"
 - Verify all required environment variables are set
 - Ensure `requirements.txt` is correct
 
-### Database connection issues
-- Verify `DATABASE_URL` is set correctly
+### Database connection issues / "DATABASE_URL is required in production"
+- **Production requires PostgreSQL** - SQLite is not allowed
+- Add a PostgreSQL database via Railway dashboard (Settings → "+ New" → "Database" → "Add PostgreSQL")
+- Railway will automatically set `DATABASE_URL` when you add the database
+- Verify `DATABASE_URL` is set in Railway environment variables
 - Check Postgres database is running in Railway
 - Review connection logs in Railway dashboard
+- Ensure startup logs show `Selected DB backend: postgres` (not sqlite)
+
+### Health check shows backend=sqlite in production
+- This is not allowed in production
+- Verify `ENV=production` or `DEBUG=0` is set
+- Verify `DATABASE_URL` is set (add Postgres database if missing)
+- Check startup logs for Postgres connection errors
+- The app should refuse to start if Postgres is not available in production
 
 ### Magic links not working
 - Verify `PUBLIC_BASE_URL` is set to your Railway app URL
