@@ -116,6 +116,37 @@ python -c "import secrets; print(secrets.token_hex(32))"
 - `SMTP_PASS=re_xxxxxxxxxxxxx` (your Resend API key)
 - `SMTP_FROM=noreply@yourdomain.com` (must be verified in Resend)
 
+**⚠️ Important: Resend Domain Verification**
+
+Resend has two modes:
+
+1. **Sandbox Mode (Unverified Domain):**
+   - If `SMTP_FROM` domain is `resend.dev` or not verified, Resend operates in sandbox mode
+   - In sandbox mode, emails can **only** be delivered to:
+     - Your Resend account owner email
+     - `delivered@resend.dev` (test email)
+   - Emails to other recipients will **not be delivered** (but won't error)
+   - The app will detect this and log a warning: `"Resend sandbox detected: SMTP_FROM domain is 'resend.dev'"`
+   - **Magic links will always be logged in server logs** when SMTP fails, so you can manually use them
+
+2. **Production Mode (Verified Domain):**
+   - Verify your custom domain in Resend dashboard
+   - Use `SMTP_FROM` with your verified domain (e.g., `noreply@yourdomain.com`)
+   - All emails will be delivered normally
+   - No sandbox limitations
+
+**Testing in Sandbox Mode:**
+- Use `delivered@resend.dev` as the recipient email for testing
+- Or use your Resend account owner email
+- Check server logs for magic links if email delivery fails
+- The app will log: `"Magic link (for manual use): https://..."` when SMTP fails
+
+**To Enable Production Email Delivery:**
+1. Go to Resend dashboard → Domains
+2. Add and verify your domain (add DNS records)
+3. Update `SMTP_FROM` to use your verified domain
+4. Redeploy your app
+
 
 **Important:** Set `PUBLIC_BASE_URL` to your Railway app URL to ensure magic links use HTTPS. If not set, the app will try to detect from request headers, but setting it explicitly is recommended.
 

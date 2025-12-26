@@ -1814,6 +1814,62 @@
                 statusEl.style.color = '#64748b';
             }
         }
+        
+        // Toast notification system for prominent error/success messages
+        function showToast(message, type = 'error') {
+            // Remove existing toast if any
+            const existingToast = document.getElementById('toast-notification');
+            if (existingToast) {
+                existingToast.remove();
+            }
+            
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.id = 'toast-notification';
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'error' ? 'var(--error)' : 'var(--success)'};
+                color: white;
+                padding: 16px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                z-index: 10000;
+                max-width: 400px;
+                font-size: 14px;
+                line-height: 1.5;
+                animation: slideIn 0.3s ease-out;
+            `;
+            toast.textContent = message;
+            
+            // Add animation
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes slideIn {
+                    from {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                }
+            `;
+            if (!document.getElementById('toast-animations')) {
+                style.id = 'toast-animations';
+                document.head.appendChild(style);
+            }
+            
+            document.body.appendChild(toast);
+            
+            // Auto-remove after 5 seconds (or 8 seconds for errors)
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease-out reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, type === 'error' ? 8000 : 5000);
+        }
 
         // Show query-based messages from redirects
         const params = new URLSearchParams(window.location.search || '');
@@ -1893,11 +1949,12 @@
                         console.error('Failed to read error response:', readErr);
                     }
                     
-                    // Log error for debugging
+                    // Log error for debugging - log full response text
                     console.error('Analyze PDF failed:', {
                         status: response.status,
                         statusText: response.statusText,
-                        body: errorText || 'Could not read response body'
+                        body: errorText || 'Could not read response body',
+                        responseText: errorText
                     });
                     
                     // Map status codes to user-friendly messages
@@ -1913,7 +1970,9 @@
                         detail = 'Server error. Please try again later.';
                     }
                     
+                    // Show both status message and toast notification for visibility
                     setStatus(detail, true);
+                    showToast(detail, 'error');
                     fieldsContainer.style.display = 'none';
                     submitBtn.style.display = 'none';
                     return;
@@ -1939,6 +1998,7 @@
                 console.error('Analyze PDF error:', err);
                 const errorMessage = err.message || t('errors.failed_analyze') || 'Failed to analyze PDF. Please try again.';
                 setStatus(errorMessage, true);
+                showToast(errorMessage, 'error');
                 fieldsContainer.style.display = 'none';
                 submitBtn.style.display = 'none';
             } finally {

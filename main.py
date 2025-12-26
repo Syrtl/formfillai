@@ -606,11 +606,30 @@ async def startup_event() -> None:
     # Log chosen from_email string length (not the value)
     from_email_length = len(SMTP_FROM) if SMTP_FROM else 0
     
+    # Detect Resend sandbox limitation
+    resend_sandbox_warning = False
+    if smtp_configured and SMTP_HOST and "resend.com" in SMTP_HOST.lower():
+        # Check if FROM email domain is resend.dev (sandbox) or not a verified custom domain
+        if SMTP_FROM:
+            from_domain = SMTP_FROM.split("@")[-1].lower() if "@" in SMTP_FROM else ""
+            if from_domain == "resend.dev":
+                resend_sandbox_warning = True
+                logger.warning("Resend sandbox detected: SMTP_FROM domain is 'resend.dev'. "
+                             "Resend may only deliver to test emails (owner email / delivered@resend.dev) "
+                             "until a custom domain is verified. Magic links will be logged for other recipients.")
+    
+    # Log PUBLIC_BASE_URL status
+    public_base_url_set = bool(os.getenv("PUBLIC_BASE_URL"))
+    
     logger.info("SMTP configuration: HOST=%s PORT=%s USER=%s USERNAME=%s PASS=%s PASSWORD=%s FROM=%s EMAIL_FROM=%s FROM_LENGTH=%d",
                 smtp_host_set, smtp_port_set, smtp_user_set, smtp_user_alt_set, 
                 smtp_pass_set, smtp_pass_alt_set, smtp_from_set, smtp_from_alt_set, from_email_length)
+    logger.info("PUBLIC_BASE_URL: %s", "set" if public_base_url_set else "not set")
     if smtp_configured:
-        logger.info("SMTP configured: email delivery enabled")
+        if resend_sandbox_warning:
+            logger.warning("SMTP configured (Resend sandbox): email delivery may be limited to test emails")
+        else:
+            logger.info("SMTP configured: email delivery enabled")
     else:
         logger.info("SMTP not configured: email delivery disabled (missing required variables)")
     
@@ -1634,9 +1653,14 @@ async def send_magic_link(request: Request) -> JSONResponse:
         base_url = get_public_base_url(request)
         magic_link = f"{base_url}/auth/verify?token={token}"
         
+        # ALWAYS log magic link (for debugging and fallback when SMTP fails)
+        # Log only in dev mode or when SMTP fails (never in production success case)
+        should_log_link = DEBUG or ENV == "dev"
+        
         # In development, always return the link in response for UI display
         if DEBUG or ENV == "dev":
-            logger.info("Magic link for %s: %s", email, magic_link)
+            if should_log_link:
+                logger.info("Magic link for %s: %s", email, magic_link)
             # Try to send via SMTP if configured, but don't fail if it doesn't work
             if smtp_configured:
                 email_sent, error_msg = await send_email_via_smtp(
@@ -1647,9 +1671,9 @@ async def send_magic_link(request: Request) -> JSONResponse:
                 if email_sent:
                     logger.info("Email sent via SMTP to %s", email)
                 else:
-                    logger.warning("SMTP error, falling back to log for %s: %s", email, error_msg)
+                    logger.warning("SMTP error, falling back to log for %s: %s. Magic link: %s", email, error_msg, magic_link)
             else:
-                logger.info("SMTP not configured, magic link logged")
+                logger.info("SMTP not configured, magic link logged: %s", magic_link)
             
             return JSONResponse({
                 "success": True,
@@ -1668,21 +1692,25 @@ async def send_magic_link(request: Request) -> JSONResponse:
             )
             
             if email_sent:
-                # Email was successfully sent via SMTP
+                # Email was successfully sent via SMTP - don't log link in production
+                logger.info("Email sent via SMTP to %s", email)
                 return JSONResponse({
                     "success": True,
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP vars are present but sending failed - return the real error (safe)
-                logger.error("SMTP send failed after retries for %s: %s", email, error_msg)
+                # SMTP vars are present but sending failed - ALWAYS log magic link and return error
+                logger.error("SMTP send failed after retries for %s: %s. Magic link (for manual use): %s", 
+                           email, error_msg, magic_link)
                 return JSONResponse(
                     status_code=503,
                     content={"detail": error_msg or "Failed to send email. Please try again later or contact support."}
                 )
         else:
             # SMTP not configured - return clear error (DO NOT claim email was sent)
-            logger.warning("SMTP not configured: missing required variables (SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM)")
+            # Still log magic link for manual use
+            logger.warning("SMTP not configured: missing required variables (SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM). "
+                         "Magic link (for manual use): %s", magic_link)
             return JSONResponse(
                 status_code=503,
                 content={"detail": "Email service is not configured. Please configure SMTP settings to enable sign-in."}
