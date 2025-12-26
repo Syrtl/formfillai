@@ -872,14 +872,14 @@ async def extract_fields(
                 filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
-    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-    pdf_bytes = await read_upload_file(pdf_file)
+        pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
