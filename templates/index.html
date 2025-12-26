@@ -1930,32 +1930,33 @@
                 
                 // Read response body exactly once based on content-type
                 const contentType = response.headers.get('content-type') || '';
+                let responseData = null;
+                let responseText = '';
                 
+                // Always log response status and text to console for debugging
+                try {
+                    if (contentType.includes('application/json')) {
+                        responseData = await response.json();
+                        responseText = JSON.stringify(responseData);
+                    } else {
+                        responseText = await response.text();
+                    }
+                    console.log('Analyze PDF response:', response.status, responseText);
+                } catch (readErr) {
+                    console.error('Failed to read response:', readErr);
+                    responseText = 'Could not read response body';
+                }
+                
+                // Handle non-200 responses - show visible toast
                 if (!response.ok) {
                     let detail = t('errors.failed_analyze');
-                    let errorText = '';
                     
-                    // Try to read error message from response
-                    try {
-                        if (contentType.includes('application/json')) {
-                            const errorData = await response.json();
-                            detail = errorData.detail || detail;
-                            errorText = JSON.stringify(errorData);
-                        } else {
-                            errorText = await response.text();
-                            detail = errorText || detail;
-                        }
-                    } catch (readErr) {
-                        console.error('Failed to read error response:', readErr);
+                    // Extract error message from response
+                    if (responseData && responseData.detail) {
+                        detail = responseData.detail;
+                    } else if (responseText && !responseData) {
+                        detail = responseText;
                     }
-                    
-                    // Log error for debugging - log full response text
-                    console.error('Analyze PDF failed:', {
-                        status: response.status,
-                        statusText: response.statusText,
-                        body: errorText || 'Could not read response body',
-                        responseText: errorText
-                    });
                     
                     // Map status codes to user-friendly messages
                     if (response.status === 401) {
@@ -1970,7 +1971,7 @@
                         detail = 'Server error. Please try again later.';
                     }
                     
-                    // Show both status message and toast notification for visibility
+                    // Show visible toast on ANY non-200 response
                     setStatus(detail, true);
                     showToast(detail, 'error');
                     fieldsContainer.style.display = 'none';
@@ -1978,12 +1979,16 @@
                     return;
                 }
 
-                const data = await response.json();
-                currentFields = data.fields || [];
-                currentPdfHash = data.pdf_hash || null;
+                // Success - render preview + fields
+                if (!responseData) {
+                    responseData = JSON.parse(responseText);
+                }
+                currentFields = responseData.fields || [];
+                currentPdfHash = responseData.pdf_hash || null;
                 
                 if (currentFields.length === 0) {
                     setStatus(t('no_fields_found'), true);
+                    showToast(t('no_fields_found') || 'No fillable fields found in PDF', 'error');
                     fieldsContainer.style.display = 'none';
                     submitBtn.style.display = 'none';
                 } else {
@@ -1993,6 +1998,7 @@
                     const count = currentFields.length;
                     fieldsSummary.textContent = count === 1 ? t('fields_found', {count}) : t('fields_found_plural', {count});
                     setStatus(count === 1 ? t('fields_found_message', {count}) : t('fields_found_message_plural', {count}), false, true);
+                    showToast(`Found ${count} field${count !== 1 ? 's' : ''}`, 'success');
                 }
             } catch (err) {
                 console.error('Analyze PDF error:', err);

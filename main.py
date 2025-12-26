@@ -108,20 +108,16 @@ if OPENAI_AVAILABLE and OPENAI_API_KEY:
     openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Helper function to normalize environment variables
-def get_normalized_env(key: str, alt_key: Optional[str] = None) -> Optional[str]:
+def get_env(name: str) -> Optional[str]:
     """Get and normalize environment variable.
     
     Normalization:
-    - Strip whitespace
-    - Remove outer quotes (single or double)
-    - Treat empty strings as missing
-    
-    Supports alternative key (e.g., SMTP_USER or SMTP_USERNAME).
+    - Reads os.getenv(name)
+    - Strips whitespace
+    - Removes outer single/double quotes if present
+    - Returns None if empty after stripping
     """
-    value = os.getenv(key)
-    if not value and alt_key:
-        value = os.getenv(alt_key)
-    
+    value = os.getenv(name)
     if not value:
         return None
     
@@ -140,8 +136,13 @@ def get_normalized_env(key: str, alt_key: Optional[str] = None) -> Optional[str]
 
 
 # SMTP configuration - support multiple naming variants with normalization
-SMTP_HOST = get_normalized_env("SMTP_HOST")
-SMTP_PORT_RAW = get_normalized_env("SMTP_PORT")
+SMTP_HOST = get_env("SMTP_HOST")
+SMTP_USER = get_env("SMTP_USER") or get_env("SMTP_USERNAME")
+SMTP_PASS = get_env("SMTP_PASS") or get_env("SMTP_PASSWORD")
+SMTP_FROM_RAW = get_env("SMTP_FROM") or get_env("EMAIL_FROM")
+
+# SMTP_PORT is OPTIONAL - default to 587 if missing or invalid
+SMTP_PORT_RAW = get_env("SMTP_PORT")
 SMTP_PORT = 587  # Default
 if SMTP_PORT_RAW:
     try:
@@ -149,14 +150,6 @@ if SMTP_PORT_RAW:
     except (ValueError, TypeError):
         logger.warning("SMTP_PORT could not be parsed as integer: %s. Using default 587.", SMTP_PORT_RAW)
         SMTP_PORT = 587
-        SMTP_PORT_RAW = None  # Treat as missing if parsing fails
-
-# Support both SMTP_USER and SMTP_USERNAME
-SMTP_USER = get_normalized_env("SMTP_USER", "SMTP_USERNAME")
-# Support both SMTP_PASS and SMTP_PASSWORD
-SMTP_PASS = get_normalized_env("SMTP_PASS", "SMTP_PASSWORD")
-# Support both SMTP_FROM and EMAIL_FROM
-SMTP_FROM_RAW = get_normalized_env("SMTP_FROM", "EMAIL_FROM")
 
 # Extract email from "Name <email>" format if needed
 def extract_email_from_string(email_str: Optional[str]) -> Optional[str]:
@@ -172,6 +165,9 @@ SMTP_FROM = extract_email_from_string(SMTP_FROM_RAW)
 
 # Thread pool for SMTP (smtplib is synchronous)
 _smtp_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="smtp")
+
+# Store last magic link for dev mode debugging
+_last_magic_link: Optional[str] = None
 
 ALLOWED_PDF_TYPES = {"application/pdf"}
 ALLOWED_JSON_TYPES = {"application/json", "text/json"}
@@ -790,11 +786,18 @@ async def extract_fields(
     pdf_file: UploadFile = File(...)
 ) -> JSONResponse:
     """Extract form fields from a fillable PDF."""
-    # Get user info for logging (if available)
+    # Check authentication - return 401 if not authenticated
     user = await get_current_user_async(request)
-    user_id = user.get("id") if user else None
-    user_email = user.get("email") if user else None
-    is_authenticated = user is not None
+    if not user:
+        logger.warning("POST /fields: unauthenticated request")
+        raise HTTPException(
+            status_code=401,
+            detail="Please sign in to analyze PDFs."
+        )
+    
+    user_id = user.get("id")
+    user_email = user.get("email")
+    is_authenticated = True
     
     # Log analyze request with content-type
     filename = pdf_file.filename or "unknown"
@@ -1628,7 +1631,7 @@ def get_public_base_url(request: Request) -> str:
     Falls back to request.base_url if PUBLIC_BASE_URL is not set.
     Ensures proper URL formatting (no double slashes, proper scheme).
     """
-    base_url = os.getenv("PUBLIC_BASE_URL")
+    base_url = get_env("PUBLIC_BASE_URL")
     if base_url:
         # Use env var, ensure it's properly formatted
         base_url = base_url.rstrip('/')
@@ -1693,14 +1696,21 @@ async def send_magic_link(request: Request) -> JSONResponse:
             form_data = await request.form()
             email = form_data.get("email", "").strip()
         
-        # Log request received and SMTP config status (booleans only)
+        # Determine SMTP configuration (only check HOST, USER, PASS, FROM - PORT is optional)
         smtp_host_present = bool(SMTP_HOST)
         smtp_user_present = bool(SMTP_USER)
         smtp_pass_present = bool(SMTP_PASS)
         smtp_from_present = bool(SMTP_FROM)
         smtp_configured = all([smtp_host_present, smtp_user_present, smtp_pass_present, smtp_from_present])
-        logger.info("POST /auth/send-magic-link: email=%s smtp_host=%s smtp_user=%s smtp_pass=%s smtp_from=%s smtp_configured=%s",
-                    email, smtp_host_present, smtp_user_present, smtp_pass_present, smtp_from_present, smtp_configured)
+        
+        # Log SMTP resolution (unambiguous, no secrets)
+        logger.info("SMTP resolved: host=%s user=%s pass_present=%s from=%s port=%s configured=%s",
+                    "present" if smtp_host_present else "missing",
+                    "present" if smtp_user_present else "missing",
+                    smtp_pass_present,
+                    "present" if smtp_from_present else "missing",
+                    SMTP_PORT,
+                    smtp_configured)
         
         # Validate email format
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -1721,14 +1731,14 @@ async def send_magic_link(request: Request) -> JSONResponse:
         base_url = get_public_base_url(request)
         magic_link = f"{base_url}/auth/verify?token={token}"
         
-        # ALWAYS log magic link (for debugging and fallback when SMTP fails)
-        # Log only in dev mode or when SMTP fails (never in production success case)
-        should_log_link = DEBUG or ENV == "dev"
+        # Store magic link in memory for dev mode /debug/last-magic-link endpoint
+        if DEBUG or ENV == "dev":
+            global _last_magic_link
+            _last_magic_link = magic_link
         
         # In development, always return the link in response for UI display
         if DEBUG or ENV == "dev":
-            if should_log_link:
-                logger.info("Magic link for %s: %s", email, magic_link)
+            logger.info("Magic link for %s: %s", email, magic_link)
             # Try to send via SMTP if configured, but don't fail if it doesn't work
             if smtp_configured:
                 email_sent, error_msg = await send_email_via_smtp(
@@ -1760,25 +1770,26 @@ async def send_magic_link(request: Request) -> JSONResponse:
             )
             
             if email_sent:
-                # Email was successfully sent via SMTP - don't log link in production
+                # Email was successfully sent via SMTP
                 logger.info("Email sent via SMTP to %s", email)
                 return JSONResponse({
                     "success": True,
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP vars are present but sending failed - ALWAYS log magic link and return error
-                logger.error("SMTP send failed after retries for %s: %s. Magic link (for manual use): %s", 
-                           email, error_msg, magic_link)
+                # SMTP vars are present but sending failed - return 503 with safe error and log magic link (prefix only)
+                token_prefix = token[:8] if len(token) >= 8 else "short"
+                logger.error("SMTP send failed after retries for %s: %s. Magic link token prefix: %s", 
+                           email, error_msg, token_prefix)
                 return JSONResponse(
                     status_code=503,
                     content={"detail": error_msg or "Failed to send email. Please try again later or contact support."}
                 )
         else:
-            # SMTP not configured - return clear error (DO NOT claim email was sent)
-            # Still log magic link for manual use
+            # SMTP not configured - return clear error and ALWAYS log magic link (prefix only)
+            token_prefix = token[:8] if len(token) >= 8 else "short"
             logger.warning("SMTP not configured: missing required variables (SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM). "
-                         "Magic link (for manual use): %s", magic_link)
+                         "Magic link token prefix: %s", token_prefix)
             return JSONResponse(
                 status_code=503,
                 content={"detail": "Email service is not configured. Please configure SMTP settings to enable sign-in."}
@@ -2061,32 +2072,63 @@ async def debug_smtp(request: Request) -> JSONResponse:
     Returns SMTP configuration status, PUBLIC_BASE_URL, and environment info.
     Does NOT leak secrets - only shows booleans and parsed port.
     """
-    # Get normalized SMTP vars (using the same helper)
+    # Get SMTP vars status
     smtp_host_present = bool(SMTP_HOST)
-    smtp_port_present = bool(SMTP_PORT_RAW)  # Whether port env var was set (even if parsing failed)
     smtp_user_present = bool(SMTP_USER)
     smtp_pass_present = bool(SMTP_PASS)
     smtp_from_present = bool(SMTP_FROM)
     
+    # Check if FROM is in angle bracket format (e.g., "Name <email@domain.com>")
+    from_is_angle_format = False
+    if SMTP_FROM_RAW and "<" in SMTP_FROM_RAW and ">" in SMTP_FROM_RAW:
+        from_is_angle_format = True
+    
     # Get port value (safe to return as it's just a number)
-    port_value = SMTP_PORT if smtp_port_present else None
+    port_value = SMTP_PORT if SMTP_PORT_RAW else None
     
     # Get PUBLIC_BASE_URL
-    public_base_url = os.getenv("PUBLIC_BASE_URL") or "not set"
+    public_base_url_value = get_env("PUBLIC_BASE_URL")
+    public_base_url_present = bool(public_base_url_value)
     
     return JSONResponse({
         "smtp": {
             "host_present": smtp_host_present,
-            "port_present": smtp_port_present,
             "user_present": smtp_user_present,
             "pass_present": smtp_pass_present,
             "from_present": smtp_from_present,
-            "port_value": port_value
+            "port_value": port_value,
+            "from_is_angle_format": from_is_angle_format
         },
-        "public_base_url": public_base_url,
-        "env": ENV or "not set",
-        "is_production": IS_PRODUCTION
+        "public_base_url_present": public_base_url_present,
+        "public_base_url_value": public_base_url_value,
+        "env": {
+            "ENV": ENV or "not set",
+            "DEBUG": str(DEBUG),
+            "IS_PRODUCTION": IS_PRODUCTION
+        }
     })
+
+
+@app.get("/debug/last-magic-link")
+async def debug_last_magic_link() -> JSONResponse:
+    """Debug endpoint to get last generated magic link (dev mode only).
+    
+    In production, returns 404.
+    """
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    global _last_magic_link
+    if _last_magic_link:
+        return JSONResponse({
+            "magic_link": _last_magic_link,
+            "note": "This endpoint is only available in dev mode"
+        })
+    else:
+        return JSONResponse({
+            "magic_link": None,
+            "note": "No magic link generated yet in this session"
+        })
 
 
 @app.get("/debug/auth")
