@@ -146,6 +146,36 @@ def extract_email_from_string(email_str: Optional[str]) -> Optional[str]:
     return email if email else email_str
 
 
+def get_email_config() -> Dict[str, Any]:
+    """Get unified email configuration (Resend API + SMTP).
+    
+    Returns dict with:
+    - resend_configured (RESEND_API_KEY present)
+    - smtp_configured (SMTP_HOST/PORT/USER/PASS/FROM present)
+    - from_raw (display name), from_email (parsed email)
+    - resend_api_key, smtp_config (nested)
+    """
+    # Check Resend API key
+    resend_api_key = get_env("RESEND_API_KEY")
+    resend_configured = bool(resend_api_key)
+    
+    # Get SMTP config
+    smtp_config = get_smtp_config()
+    
+    # Get FROM address (supports both SMTP_FROM and EMAIL_FROM)
+    from_raw = get_env("SMTP_FROM") or get_env("EMAIL_FROM")
+    from_email = extract_email_from_string(from_raw)
+    
+    return {
+        "resend_configured": resend_configured,
+        "resend_api_key": resend_api_key,
+        "smtp_configured": smtp_config["configured"],
+        "smtp_config": smtp_config,
+        "from_raw": from_raw,
+        "from_email": from_email
+    }
+
+
 def get_smtp_config() -> Dict[str, Any]:
     """Get SMTP configuration with normalized env vars.
     
@@ -898,7 +928,7 @@ async def extract_fields(
         
         try:
             reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -922,14 +952,14 @@ async def extract_fields(
                     "size": file_size
                 }
             })
-        except HTTPException:
-            raise
-        except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -1792,20 +1822,17 @@ async def send_magic_link(request: Request) -> JSONResponse:
             form_data = await request.form()
             email = form_data.get("email", "").strip()
         
-        # Get SMTP configuration using shared function
-        smtp_config = get_smtp_config()
-        smtp_configured = smtp_config["configured"]
-        missing_keys = smtp_config["missing_keys"]
+        # Get unified email configuration
+        email_config = get_email_config()
+        resend_configured = email_config["resend_configured"]
+        smtp_configured = email_config["smtp_configured"]
+        from_raw = email_config["from_raw"]
+        from_email = email_config["from_email"]
+        smtp_config = email_config["smtp_config"]
         
-        # Log SMTP resolution (unambiguous, no secrets)
-        logger.info("SMTP resolved: host=%s user=%s pass_present=%s from=%s port=%s configured=%s missing_keys=%s",
-                    "present" if smtp_config["host_present"] else "missing",
-                    "present" if smtp_config["user_present"] else "missing",
-                    smtp_config["pass_present"],
-                    "present" if smtp_config["from_present"] else "missing",
-                    smtp_config["port"],
-                    smtp_configured,
-                    missing_keys if missing_keys else "none")
+        # Log email configuration (unambiguous, no secrets)
+        logger.info("Email config: resend_configured=%s smtp_configured=%s from_present=%s",
+                    resend_configured, smtp_configured, bool(from_email))
         
         # Validate email format
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -1831,43 +1858,41 @@ async def send_magic_link(request: Request) -> JSONResponse:
             global _last_magic_link
             _last_magic_link = magic_link
         
-        # In development, always return the link in response for UI display
-        if DEBUG or ENV == "dev":
-            logger.info("Magic link for %s: %s", email, magic_link)
-            # Try to send via SMTP if configured, but don't fail if it doesn't work
-            if smtp_configured:
-                email_sent, error_msg = await send_email_via_smtp(
-                    to_email=email,
-                    subject="Sign in to FormFillAI",
-                    body=f"""<html><body><p>Click the link below to sign in:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p></body></html>""",
-                    smtp_config=smtp_config
-                )
-                if email_sent:
-                    logger.info("Email sent via SMTP to %s", email)
-                else:
-                    logger.warning("SMTP error, falling back to log for %s: %s. Magic link: %s", email, error_msg, magic_link)
-            else:
-                logger.info("SMTP not configured, magic link logged: %s", magic_link)
-            
-            return JSONResponse({
-                "success": True,
-                "message": "Magic link generated. Check your email or use the link below.",
-                "dev_link": magic_link,
-                "magicLink": magic_link  # Also include for frontend compatibility
-            })
+        # Prepare email content
+        email_subject = "Sign in to FormFillAI"
+        email_body = f"""<html><body><p>Click the link below to sign in to your FormFillAI account:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p><p>If you didn't request this link, you can safely ignore this email.</p></body></html>"""
         
-        # In production: ensure SMTP is used when configured
-        if smtp_configured:
-            # Send email via SMTP - pass config to ensure consistency
+        # Try Resend API first (primary method)
+        email_sent = False
+        error_msg = None
+        if resend_configured:
+            email_sent, error_msg = await send_email_via_resend(
+                to_email=email,
+                subject=email_subject,
+                body=email_body,
+                from_email=from_email,
+                from_raw=from_raw
+            )
+            if email_sent:
+                logger.info("Email sent via Resend API to %s", email)
+                return JSONResponse({
+                    "ok": True,
+                    "success": True,
+                    "message": "Magic link sent to your email."
+                })
+            else:
+                logger.warning("Resend API send failed for %s: %s", email, error_msg)
+                # Fall through to SMTP fallback
+        
+        # Fallback to SMTP if Resend failed or not configured
+        if not email_sent and smtp_configured:
             email_sent, error_msg = await send_email_via_smtp(
                 to_email=email,
-                subject="Sign in to FormFillAI",
-                body=f"""<html><body><p>Click the link below to sign in to your FormFillAI account:</p><p><a href="{magic_link}">{magic_link}</a></p><p>This link will expire in 15 minutes.</p><p>If you didn't request this link, you can safely ignore this email.</p></body></html>""",
+                subject=email_subject,
+                body=email_body,
                 smtp_config=smtp_config
             )
-            
             if email_sent:
-                # Email was successfully sent via SMTP
                 logger.info("Email sent via SMTP to %s", email)
                 return JSONResponse({
                     "ok": True,
@@ -1875,27 +1900,24 @@ async def send_magic_link(request: Request) -> JSONResponse:
                     "message": "Magic link sent to your email."
                 })
             else:
-                # SMTP configured but sending failed - return 503 with safe error and log full magic link
-                token_prefix = token[:8] if len(token) >= 8 else "short"
-                logger.error("SMTP send failed after retries for %s: %s. Magic link token prefix: %s", 
-                           email, error_msg, token_prefix)
-                # Always log full magic link when SMTP send fails (for Railway logs debugging)
-                logger.info("MAGIC_LINK: %s", magic_link)
-                # Trim error message for safety
-                safe_error = error_msg[:200] if error_msg else "Failed to send email"
-                return JSONResponse(
-                    status_code=503,
-                    content={"detail": safe_error}
-                )
-        else:
-            # SMTP not configured - return 503 with list of missing keys
-            token_prefix = token[:8] if len(token) >= 8 else "short"
-            missing_keys_str = ", ".join(missing_keys)
-            logger.warning("SMTP not configured: missing keys=%s. Magic link token prefix: %s", 
-                         missing_keys_str, token_prefix)
+                logger.warning("SMTP send failed for %s: %s", email, error_msg)
+        
+        # Both methods failed or not configured
+        # Always log full magic link when email send fails (for Railway logs debugging)
+        logger.info("MAGIC_LINK: %s", magic_link)
+        
+        if not resend_configured and not smtp_configured:
+            # No email service configured
             return JSONResponse(
                 status_code=503,
-                content={"detail": f"Email service is not configured. Missing: {missing_keys_str}"}
+                content={"ok": False, "detail": "Email service is not configured. Please configure RESEND_API_KEY or SMTP settings."}
+            )
+        else:
+            # Email service configured but sending failed
+            safe_error = error_msg[:200] if error_msg else "Failed to send email"
+            return JSONResponse(
+                status_code=503,
+                content={"ok": False, "detail": safe_error}
             )
     except HTTPException:
         # Re-raise HTTP exceptions (400, etc.)
@@ -2168,8 +2190,8 @@ async def health() -> Dict[str, Any]:
     }
 
 
-@app.get("/debug/smtp")
-async def debug_smtp(request: Request) -> JSONResponse:
+@app.get("/debug/email")
+async def debug_email(request: Request) -> JSONResponse:
     """Debug endpoint for SMTP configuration (production-safe).
     
     Returns SMTP configuration status, PUBLIC_BASE_URL, and environment info.
@@ -2210,30 +2232,49 @@ async def debug_smtp(request: Request) -> JSONResponse:
 
 @app.get("/debug/last-magic-link")
 async def debug_last_magic_link(request: Request, email: Optional[str] = None) -> JSONResponse:
-    """Debug endpoint to get last generated magic link for an email (dev mode only).
+    """Secure debug endpoint to get last generated magic link for an email.
     
-    Enabled only when ENV!=production OR DEBUG=1.
-    In production, returns 404.
+    Protected by X-Debug-Key header matching DEBUG_KEY environment variable.
+    Only enabled when DEBUG_KEY is set.
     
     Args:
-        email: Email address to look up the latest magic token for.
-               If not provided, returns the last link stored in memory (if any).
+        email: Email address to look up the latest unexpired magic token for.
+    
+    Returns:
+        {ok:true, magic_link:"https://.../auth/verify?token=..."} for most recent unexpired token
+        {ok:false, detail:"not found"} if none
     """
-    if IS_PRODUCTION:
+    # Check DEBUG_KEY is set
+    debug_key = get_env("DEBUG_KEY")
+    if not debug_key:
         raise HTTPException(status_code=404, detail="Not found")
     
-    # If email is provided, look up from database
-    if email:
-        email = email.strip().lower()
-        if not email:
-            return JSONResponse(
-                status_code=400,
-                content={"ok": False, "detail": "Email parameter is required"}
-            )
-        
-        # Get latest token from database
-        token = await db.get_latest_magic_token_for_email(email)
-        if token:
+    # Verify X-Debug-Key header
+    provided_key = request.headers.get("X-Debug-Key", "")
+    if not provided_key or provided_key != debug_key:
+        raise HTTPException(status_code=403, detail="Invalid debug key")
+    
+    # Email is required
+    if not email:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "detail": "Email parameter is required"}
+        )
+    
+    email = email.strip().lower()
+    if not email:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "detail": "Email parameter is required"}
+        )
+    
+    # Get latest unexpired token from database
+    token = await db.get_latest_magic_token_for_email(email)
+    if token:
+        # Verify token is not expired by checking expires_at
+        now = int(time.time())
+        token_valid = await db.check_magic_token_valid(token, now)
+        if token_valid:
             # Build magic link URL
             base_url = get_public_base_url(request)
             magic_link = f"{base_url}/auth/verify?token={token}"
@@ -2241,26 +2282,11 @@ async def debug_last_magic_link(request: Request, email: Optional[str] = None) -
                 "ok": True,
                 "magic_link": magic_link
             })
-        else:
-            return JSONResponse(
-                status_code=404,
-                content={"ok": False, "detail": f"No magic token found for email: {email}"}
-            )
     
-    # Fallback to in-memory storage (for backward compatibility)
-    global _last_magic_link
-    if _last_magic_link:
-        return JSONResponse({
-            "ok": True,
-            "magic_link": _last_magic_link,
-            "note": "This is the last link generated in this session. Use ?email=... to look up by email."
-        })
-    else:
-        return JSONResponse({
-            "ok": False,
-            "magic_link": None,
-            "detail": "No magic link generated yet in this session. Use ?email=... to look up by email."
-        })
+    return JSONResponse(
+        status_code=404,
+        content={"ok": False, "detail": "not found"}
+    )
 
 
 @app.get("/debug/send-test-email")

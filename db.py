@@ -652,6 +652,38 @@ async def get_latest_magic_token_for_email(email: str) -> Optional[str]:
                 return None
 
 
+async def check_magic_token_valid(token: str, current_time: int) -> bool:
+    """Check if a magic token is valid (not expired and not used).
+    
+    Args:
+        token: The magic token to check
+        current_time: Current Unix timestamp
+    
+    Returns:
+        True if token is valid (exists, not expired, not used), False otherwise
+    """
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT expires_at, used FROM magic_tokens WHERE token = $1",
+                token
+            )
+            if row:
+                return row["expires_at"] > current_time and row["used"] == 0
+            return False
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT expires_at, used FROM magic_tokens WHERE token = ?",
+                (token,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0] > current_time and row[1] == 0
+                return False
+
+
 async def verify_magic_token(token: str) -> Optional[str]:
     """Verify magic token and return email if valid. Marks token as used.
     Uses FOR UPDATE to prevent race conditions and ensures transactional safety.
