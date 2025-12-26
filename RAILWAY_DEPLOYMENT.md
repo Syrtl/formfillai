@@ -157,6 +157,25 @@ Resend has two modes:
 
 **Important:** Set `PUBLIC_BASE_URL` to your Railway app URL to ensure magic links use HTTPS. If not set, the app will try to detect from request headers, but setting it explicitly is recommended.
 
+#### Debug Variables (Optional)
+
+| Variable Name | Description | Example Value | Required |
+|--------------|-------------|---------------|----------|
+| `DEBUG_KEY` | Secret key for accessing debug endpoints when email delivery fails. Set this to enable `/debug/last-magic-link` and `/debug/email/send-test`. | `your-secret-debug-key` | ❌ Optional |
+
+**Debug Endpoints:**
+- `GET /debug/last-magic-link?email=...` - Get the latest magic link for an email (requires `DEBUG=1` OR `X-Debug-Key` header)
+- `GET /debug/email/send-test?to=...` - Test email delivery via Resend API and/or SMTP (requires `DEBUG=1` OR `X-Debug-Key` header)
+
+**Usage:**
+```bash
+# With DEBUG_KEY set:
+curl -H "X-Debug-Key: your-secret-debug-key" "https://your-app.railway.app/debug/last-magic-link?email=user@example.com"
+
+# Or with DEBUG=1 (no header needed):
+curl "https://your-app.railway.app/debug/last-magic-link?email=user@example.com"
+```
+
 #### Optional Variables
 
 | Variable Name | Description | Example Value | Required |
