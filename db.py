@@ -73,7 +73,7 @@ async def init_db() -> None:
     # In production, DATABASE_URL is REQUIRED
     if is_production and not database_url_set:
         raise RuntimeError(
-            "DATABASE_URL is required in production (ENV=production or DEBUG=0). "
+            "DATABASE_URL environment variable is required in production (ENV=production or DEBUG=0). "
             "Please add a PostgreSQL database and set DATABASE_URL environment variable."
         )
     

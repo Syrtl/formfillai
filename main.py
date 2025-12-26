@@ -86,7 +86,7 @@ if not _app_signing_secret_raw:
         )
     else:
         raise RuntimeError(
-            "APP_SIGNING_SECRET environment variable is required. "
+            "APP_SIGNING_SECRET environment variable is required in production. "
             "Set a strong random string before starting the app."
         )
 
@@ -533,10 +533,12 @@ async def periodic_cleanup() -> None:
 async def startup_event() -> None:
     ensure_tmp_dir()
     
-    # Log environment configuration
-    logger.info("=== FormFillAI Startup ===")
-    logger.info("Environment: ENV=%s DEBUG=%s IS_PRODUCTION=%s", 
-                ENV or "not set", DEBUG, IS_PRODUCTION)
+    # Log environment and required variables BEFORE any initialization
+    database_url_set = bool(os.getenv("DATABASE_URL"))
+    app_signing_secret_set = bool(os.getenv("APP_SIGNING_SECRET"))
+    
+    logger.info("Startup config: ENV=%s DEBUG=%s DATABASE_URL=%s APP_SIGNING_SECRET=%s",
+                ENV or "not set", DEBUG, database_url_set, app_signing_secret_set)
     
     # Initialize database (this will log DATABASE_URL status and backend)
     await db.init_db()
