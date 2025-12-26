@@ -74,8 +74,11 @@ SUPPORTED_LANGUAGES = [
 DEFAULT_LANGUAGE = "en"
 
 ENV = os.getenv("ENV", "").lower()
-DEBUG = os.getenv("DEBUG", "0") == "1"
-IS_PRODUCTION = ENV == "production" or (ENV != "dev" and not DEBUG)
+DEBUG_RAW = os.getenv("DEBUG", "0")
+DEBUG = DEBUG_RAW == "1"
+# Production detection: (ENV == "production") OR (DEBUG is explicitly 0/False AND ENV is set)
+# If ENV is missing/empty, default to dev (not production)
+IS_PRODUCTION = (ENV == "production") or (DEBUG_RAW in ["0", "false", "False"] and bool(ENV))
 
 _app_signing_secret_raw = os.getenv("APP_SIGNING_SECRET")
 if not _app_signing_secret_raw:
@@ -561,8 +564,10 @@ async def startup_event() -> None:
     
     # Log database backend (after init_db which sets it)
     db_backend = db.get_db_backend_name()
+    database_url_set = bool(os.getenv("DATABASE_URL"))
     if db_backend:
-        logger.info("Selected DB backend: %s", db_backend)
+        logger.info("DB backend consistency: backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
+                    db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
         if IS_PRODUCTION and db_backend != "postgres":
             logger.error("CRITICAL: Production requires Postgres but backend is %s", db_backend)
             raise RuntimeError(f"Production requires Postgres backend, but {db_backend} is active")
@@ -615,12 +620,24 @@ async def startup_event() -> None:
 async def get_current_user_async(request: Request) -> Optional[Dict[str, Any]]:
     """Get current user from session cookie (async)."""
     session_id = request.cookies.get("session")
+    db_backend = db.get_db_backend_name()
+    database_url_set = bool(os.getenv("DATABASE_URL"))
+    
     if not session_id:
+        logger.debug("get_current_user_async: no session cookie, backend=%s DATABASE_URL=%s", 
+                     db_backend, database_url_set)
         return None
+    
     session = await db.get_session(session_id)
     if not session:
+        logger.debug("get_current_user_async: session not found, session_id_prefix=%s backend=%s DATABASE_URL=%s",
+                     session_id[:8] if len(session_id) >= 8 else "short", db_backend, database_url_set)
         return None
+    
     user = await db.get_user_by_id(session["user_id"])
+    if user:
+        logger.debug("get_current_user_async: authenticated user_id=%s email=%s backend=%s",
+                     session["user_id"], user.get("email"), db_backend)
     return user
 
 
@@ -1023,8 +1040,15 @@ async def get_config() -> JSONResponse:
 @app.get("/api/me")
 async def get_me(request: Request) -> JSONResponse:
     """Get current user information including email and plan (free/pro)."""
+    # Log backend consistency
+    db_backend = db.get_db_backend_name()
+    database_url_set = bool(os.getenv("DATABASE_URL"))
+    logger.info("api/me: backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
+                db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
+    
     user = await get_current_user_async(request)
     if not user:
+        logger.info("api/me: not authenticated (no user found)")
         return JSONResponse({
             "authenticated": False
         })
@@ -1036,6 +1060,9 @@ async def get_me(request: Request) -> JSONResponse:
     
     # Determine plan string
     plan = "pro" if is_pro else "free"
+    
+    logger.info("api/me: authenticated user_id=%s email=%s plan=%s backend=%s",
+                user.get("id"), user.get("email"), plan, db_backend)
     
     return JSONResponse({
         "authenticated": True,
@@ -1678,6 +1705,12 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     
     Validates token, marks it as used, creates session, and sets secure cookie.
     """
+    # Log backend consistency
+    db_backend = db.get_db_backend_name()
+    database_url_set = bool(os.getenv("DATABASE_URL"))
+    logger.info("auth/verify: backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
+                db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
+    
     # Log token prefix (first 6 chars) for debugging
     token_prefix = token[:6] if token and len(token) >= 6 else "none"
     logger.info("Magic link verification request: token_prefix=%s", token_prefix)
@@ -1690,10 +1723,12 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     # Verify token (this marks it as used atomically)
     email = await db.verify_magic_token(token)
     if not email:
-        logger.warning("Magic link verification failed: token_prefix=%s reason=invalid/expired/used", token_prefix)
+        logger.warning("Magic link verification failed: token_prefix=%s reason=invalid/expired/used backend=%s", 
+                       token_prefix, db_backend)
         return RedirectResponse(url="/?auth_error=invalid_token", status_code=303)
     
-    logger.info("Magic link verified successfully: token_prefix=%s email=%s", token_prefix, email)
+    logger.info("Magic link verified successfully: token_prefix=%s email=%s backend=%s", 
+                token_prefix, email, db_backend)
     
     # Get or create user
     user = await db.get_user_by_email(email)
@@ -1703,9 +1738,10 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     else:
         user_id = user["id"]
     
-    # Create session
+    # Create session (uses active backend - postgres or sqlite)
     session_id = await db.create_session(user_id)
-    logger.info("Session created for user_id=%s", user_id)
+    logger.info("Session created: user_id=%s session_id_prefix=%s backend=%s", 
+                user_id, session_id[:8] if len(session_id) >= 8 else "short", db_backend)
     
     # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
     is_https = request.url.scheme == "https"
@@ -1714,20 +1750,20 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
         forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
         is_https = forwarded_proto == "https"
     
-    # Set session cookie with proper security settings
-    # Cookie name is "session" (not "session_id")
-    # Redirect to root (/) with auth_success=1
+    # Create a single RedirectResponse object and set cookie on it
+    # This ensures the cookie is set on the response that's actually returned
     response = RedirectResponse(url="/?auth_success=1", status_code=303)
     response.set_cookie(
         key="session",
         value=session_id,
         httponly=True,
-        secure=is_https or IS_PRODUCTION,  # Secure when HTTPS or in production
+        secure=is_https,  # Secure only when HTTPS (not IS_PRODUCTION, as that could be wrong)
         samesite="lax",
         path="/",
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
-    logger.info("Set-cookie issued: secure=%s samesite=lax path=/ httponly=True", is_https or IS_PRODUCTION)
+    logger.info("Set-cookie issued: secure=%s samesite=lax path=/ httponly=True max_age=2592000 backend=%s", 
+                is_https, db_backend)
     return response
 
 
@@ -1920,6 +1956,59 @@ async def health() -> Dict[str, Any]:
             "backend": db_backend
         }
     }
+
+
+@app.get("/debug/auth")
+async def debug_auth(request: Request) -> JSONResponse:
+    """Debug endpoint for authentication issues (production-safe).
+    
+    Returns request info, cookie status, and database backend info.
+    Does NOT leak full tokens/cookies - only shows truncated values.
+    """
+    # Get request info
+    host = request.headers.get("host", "unknown")
+    scheme = request.url.scheme
+    x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "not set")
+    
+    # Check session cookie
+    session_cookie = request.cookies.get("session")
+    session_present = bool(session_cookie)
+    session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
+    
+    # Get database backend info
+    db_backend = db.get_db_backend_name() or "unknown"
+    database_url_set = bool(os.getenv("DATABASE_URL"))
+    
+    # Try to look up session if present
+    session_found = False
+    if session_cookie:
+        try:
+            session = await db.get_session(session_cookie)
+            session_found = session is not None
+        except Exception as e:
+            logger.warning("debug_auth: error looking up session: %s", e)
+    
+    return JSONResponse({
+        "request": {
+            "host": host,
+            "scheme": scheme,
+            "x_forwarded_proto": x_forwarded_proto
+        },
+        "cookie": {
+            "session_present": session_present,
+            "session_prefix": session_prefix  # Only first 8 chars, safe to log
+        },
+        "database": {
+            "backend": db_backend,
+            "database_url_set": database_url_set,
+            "session_found": session_found
+        },
+        "environment": {
+            "ENV": ENV or "not set",
+            "DEBUG": DEBUG,
+            "IS_PRODUCTION": IS_PRODUCTION
+        }
+    })
 
 
 if __name__ == "__main__":
