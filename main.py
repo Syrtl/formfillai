@@ -898,7 +898,7 @@ async def extract_fields(
         
         try:
             reader = PdfReader(BytesIO(pdf_bytes))
-        fields_metadata = extract_field_metadata(reader)
+            fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -922,14 +922,14 @@ async def extract_fields(
                     "size": file_size
                 }
             })
-    except HTTPException:
-        raise
-    except Exception as exc:
+        except HTTPException:
+            raise
+        except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-        raise HTTPException(
+            raise HTTPException(
                 status_code=422,
-            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
