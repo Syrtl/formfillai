@@ -895,9 +895,9 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-    
-    try:
-        reader = PdfReader(BytesIO(pdf_bytes))
+        
+        try:
+            reader = PdfReader(BytesIO(pdf_bytes))
         fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
