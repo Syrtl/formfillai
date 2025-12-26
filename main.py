@@ -2394,6 +2394,50 @@ async def debug_auth(request: Request) -> JSONResponse:
     })
 
 
+@app.get("/debug/auth-status")
+async def debug_auth_status(request: Request) -> JSONResponse:
+    """Simplified debug endpoint for authentication status (dev mode only).
+    
+    Enabled only when ENV!=production OR DEBUG=1.
+    In production, returns 404.
+    
+    Returns:
+        {
+            "authenticated": bool,
+            "cookie_present": bool,
+            "db_session_found": bool,
+            "backend": str
+        }
+    """
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    # Check session cookie
+    session_cookie = request.cookies.get("session")
+    cookie_present = bool(session_cookie)
+    
+    # Get database backend
+    db_backend = db.get_db_backend_name() or "unknown"
+    
+    # Try to look up session if present
+    db_session_found = False
+    authenticated = False
+    if session_cookie:
+        try:
+            session = await db.get_session(session_cookie)
+            db_session_found = session is not None
+            authenticated = db_session_found
+        except Exception as e:
+            logger.warning("debug_auth_status: error looking up session: %s", e)
+    
+    return JSONResponse({
+        "authenticated": authenticated,
+        "cookie_present": cookie_present,
+        "db_session_found": db_session_found,
+        "backend": db_backend
+    })
+
+
 if __name__ == "__main__":
     # Read PORT from environment (Railway provides this as an environment variable)
     # Default to 8000 for local development
