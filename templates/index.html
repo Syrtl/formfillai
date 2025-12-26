@@ -1542,7 +1542,13 @@
             }
         });
         
-        sendMagicLinkBtn?.addEventListener('click', async () => {
+        sendMagicLinkBtn?.addEventListener('click', async (e) => {
+            // Prevent any default form submission behavior
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
             const email = signInEmailInput.value.trim();
             if (!email) {
                 signInStatus.innerHTML = '<div class="login-status error">Please enter an email address.</div>';
@@ -1560,6 +1566,9 @@
             sendMagicLinkBtn.textContent = 'Sending...';
             signInStatus.innerHTML = '';
             
+            // Log request for debugging
+            console.log('Sign in request:', { email, endpoint: '/auth/send-magic-link', method: 'POST' });
+            
             try {
                 const formData = new FormData();
                 formData.append('email', email);
@@ -1569,13 +1578,41 @@
                     body: formData
                 });
                 
-                const data = await response.json();
+                // Read response body
+                const contentType = response.headers.get('content-type') || '';
+                let responseData = null;
+                let responseText = '';
+                
+                try {
+                    if (contentType.includes('application/json')) {
+                        responseData = await response.json();
+                        responseText = JSON.stringify(responseData);
+                    } else {
+                        responseText = await response.text();
+                        try {
+                            responseData = JSON.parse(responseText);
+                        } catch {
+                            // Not JSON, keep as text
+                        }
+                    }
+                } catch (readErr) {
+                    console.error('Failed to read response:', readErr);
+                    responseText = 'Could not read response body';
+                }
+                
+                // Log response for debugging
+                console.log('Sign in response:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: responseText || 'Could not read response body'
+                });
                 
                 if (response.ok) {
-                    let statusHtml = `<div class="login-status success">${data.message || 'Check your email for a sign-in link.'}</div>`;
+                    // Success - show clear message
+                    let statusHtml = `<div class="login-status success">${data.message || 'Check your email for the magic link.'}</div>`;
                     
                     // Show dev link if available (dev mode or if magicLink is provided)
-                    const magicLink = data.magicLink || data.dev_link;
+                    const magicLink = responseData?.magicLink || responseData?.dev_link;
                     if (magicLink && appConfig.env === 'dev') {
                         statusHtml += `
                             <div class="dev-link">
@@ -1589,9 +1626,10 @@
                     signInStatus.innerHTML = statusHtml;
                     signInEmailInput.value = '';
                 } else if (response.status === 503) {
-                    // Service Unavailable - SMTP not configured
+                    // Service Unavailable - SMTP not configured or send failed
+                    const errorDetail = responseData?.detail || 'Email service is not available. Please try again later.';
                     if (appConfig.env === 'prod') {
-                        signInStatus.innerHTML = '<div class="login-status error">Email delivery is not configured yet. Please contact support.</div>';
+                        signInStatus.innerHTML = `<div class="login-status error">${errorDetail}</div>`;
                     } else {
                         // In dev, still show helpful message
                         signInStatus.innerHTML = '<div class="login-status error">Email service is not configured. Check server logs for the magic link.</div>';
