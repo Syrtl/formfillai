@@ -1760,9 +1760,24 @@
             if (urlParams.get('auth_success') === '1') {
                 // Re-check auth status after successful login
                 await checkAuth();
-                setStatus('Successfully signed in!', false, true);
+                // Show visible toast
+                showToast('Signed in!', 'success');
+                // Remove query param from URL
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, '', newUrl);
             } else if (urlParams.get('auth_error')) {
-                setStatus('Sign-in failed. Please try again.', true);
+                const errorType = urlParams.get('auth_error');
+                let errorMsg = 'Sign-in failed. Please try again.';
+                if (errorType === 'invalid_token') {
+                    errorMsg = 'Invalid or expired sign-in link. Please request a new one.';
+                } else if (errorType === 'db_unavailable') {
+                    errorMsg = 'Service temporarily unavailable. Please try again later.';
+                }
+                setStatus(errorMsg, true);
+                showToast(errorMsg, 'error');
+                // Remove query param from URL
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, '', newUrl);
             }
         })();
         

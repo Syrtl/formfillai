@@ -860,14 +860,14 @@ async def extract_fields(
                 filename, content_type, "unknown", is_authenticated, user_id, user_email)
     
     try:
-        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-        pdf_bytes = await read_upload_file(pdf_file)
+    pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
@@ -883,10 +883,10 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-        
-        try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id)
@@ -910,14 +910,14 @@ async def extract_fields(
                     "size": file_size
                 }
             })
-        except HTTPException:
-            raise
-        except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -2024,23 +2024,36 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
                 user_id, session_id[:8] if len(session_id) >= 8 else "short", db_backend)
     
     # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
-    is_https = request.url.scheme == "https"
-    if not is_https:
-        # Check X-Forwarded-Proto header (set by Railway/proxy)
-        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
-        is_https = forwarded_proto == "https"
+    scheme = request.url.scheme
+    x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    host = request.headers.get("host", "unknown")
+    
+    # Detect HTTPS: prioritize X-Forwarded-Proto (set by Railway/proxy)
+    is_https = (x_forwarded_proto == "https") or (scheme == "https")
+    
+    # Build redirect URL - use PUBLIC_BASE_URL if set, otherwise relative
+    redirect_url = "/?auth_success=1"
+    public_base_url = get_public_base_url(request)
+    if public_base_url and public_base_url != str(request.base_url).rstrip("/"):
+        redirect_url = f"{public_base_url}/?auth_success=1"
+    
+    # Log verification details (no secrets)
+    session_id_prefix = session_id[:8] if len(session_id) >= 8 else "short"
+    logger.info("auth/verify: token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s",
+                token_prefix, user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host, redirect_url)
     
     # Create a single RedirectResponse object and set cookie on it
     # This ensures the cookie is set on the response that's actually returned
-    response = RedirectResponse(url="/?auth_success=1", status_code=303)
+    response = RedirectResponse(url=redirect_url, status_code=303)
     response.set_cookie(
         key="session",
         value=session_id,
         httponly=True,
-        secure=is_https,  # Secure only when HTTPS (not IS_PRODUCTION, as that could be wrong)
+        secure=is_https,  # Secure only when HTTPS detected
         samesite="lax",
         path="/",
         max_age=60 * 60 * 24 * 30,  # 30 days
+        # Do NOT set domain explicitly - let browser use current host
     )
     logger.info("Set-cookie issued: secure=%s samesite=lax path=/ httponly=True max_age=2592000 backend=%s", 
                 is_https, db_backend)
@@ -2476,6 +2489,38 @@ async def debug_auth(request: Request) -> JSONResponse:
             "IS_PRODUCTION": IS_PRODUCTION
         }
     })
+
+
+@app.get("/debug/set-test-cookie")
+async def debug_set_test_cookie(request: Request) -> RedirectResponse:
+    """Debug endpoint to test cookie setting (no DevTools needed).
+    
+    Sets a simple non-httponly cookie "cookie_test=1" and redirects to "/".
+    This lets us verify cookies are working in the browser.
+    """
+    # Detect HTTPS via X-Forwarded-Proto (Railway/proxy)
+    scheme = request.url.scheme
+    x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    is_https = (x_forwarded_proto == "https") or (scheme == "https")
+    
+    # Create redirect response
+    response = RedirectResponse(url="/", status_code=303)
+    
+    # Set test cookie (non-httponly so we can see it in browser)
+    response.set_cookie(
+        key="cookie_test",
+        value="1",
+        httponly=False,  # Non-httponly so visible in browser
+        secure=is_https,
+        samesite="lax",
+        path="/",
+        max_age=60 * 60 * 24,  # 1 day
+    )
+    
+    logger.info("debug/set-test-cookie: secure=%s scheme=%s x_forwarded_proto=%s", 
+                is_https, scheme, x_forwarded_proto)
+    
+    return response
 
 
 @app.get("/debug/auth-status")
