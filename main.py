@@ -1212,11 +1212,17 @@ async def get_config() -> JSONResponse:
 @app.get("/api/me")
 async def get_me(request: Request) -> JSONResponse:
     """Get current user information including email and plan (free/pro)."""
+    # Log cookie presence for debugging
+    cookie_keys = list(request.cookies.keys())
+    session_cookie = request.cookies.get("session")
+    session_present = bool(session_cookie)
+    session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
+    
     # Log backend consistency
     db_backend = db.get_db_backend_name()
     database_url_set = bool(os.getenv("DATABASE_URL"))
-    logger.info("api/me: backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
-                db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
+    logger.info("GET /api/me: cookie_keys=%s session_present=%s session_prefix=%s backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
+                cookie_keys, session_present, session_prefix, db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
     
     user = await get_current_user_async(request)
     if not user:
