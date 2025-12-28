@@ -840,10 +840,17 @@ async def extract_fields(
     pdf_file: UploadFile = File(...)
 ) -> JSONResponse:
     """Extract form fields from a fillable PDF."""
+    # Log cookie presence for debugging
+    cookie_keys = list(request.cookies.keys())
+    session_cookie = request.cookies.get("session")
+    session_present = bool(session_cookie)
+    session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
+    
     # Check authentication - return 401 if not authenticated
     user = await get_current_user_async(request)
     if not user:
-        logger.warning("POST /fields: unauthenticated request")
+        logger.warning("POST /fields: unauthenticated request cookie_keys=%s session_present=%s session_prefix=%s",
+                      cookie_keys, session_present, session_prefix)
         raise HTTPException(
             status_code=401,
             detail="Please sign in to analyze PDFs."
@@ -856,6 +863,9 @@ async def extract_fields(
     # Log analyze request with content-type
     filename = pdf_file.filename or "unknown"
     content_type = pdf_file.content_type or "unknown"
+    
+    logger.info("POST /fields: cookie_keys=%s session_present=%s session_prefix=%s",
+                cookie_keys, session_present, session_prefix)
     
     # Get file size if possible (before reading)
     file_size = 0

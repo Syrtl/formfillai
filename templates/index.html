@@ -1287,7 +1287,7 @@
         // Check authentication status
         async function checkAuth() {
             try {
-                const response = await fetch('/api/me');
+                const response = await fetch('/api/me', { credentials: 'include' });
                 if (response.ok) {
                     const data = await response.json();
                     authState = {
@@ -1343,7 +1343,7 @@
             if (!authState.authenticated) return;
             
             try {
-                const response = await fetch('/api/profiles');
+                const response = await fetch('/api/profiles', { credentials: 'include' });
                 if (response.ok) {
                     const data = await response.json();
                     userProfiles = data.profiles || [];
@@ -1402,7 +1402,8 @@
                 
                 const response = await fetch('/api/profiles/apply', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    credentials: 'include'
                 });
                 
                 if (!response.ok) {
@@ -1496,7 +1497,8 @@
                 
                 const response = await fetch('/api/profiles', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    credentials: 'include'
                 });
                 
                 if (!response.ok) {
@@ -1684,7 +1686,7 @@
         // Logout
         logoutMenuItem?.addEventListener('click', async () => {
             try {
-                await fetch('/auth/logout', { method: 'POST' });
+                await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
                 authState = { authenticated: false, email: null, isPro: false };
                 updateAuthUI();
                 setStatus('Logged out successfully.', false, true);
@@ -1706,7 +1708,7 @@
         // Load app configuration
         async function loadAppConfig() {
             try {
-                const response = await fetch('/api/config');
+                const response = await fetch('/api/config', { credentials: 'include' });
                 if (response.ok) {
                     appConfig = await response.json();
                     updateUpgradeButton();
@@ -1986,7 +1988,11 @@
             formData.append('pdf_file', file);
 
             try {
-                const response = await fetch('/fields', { method: 'POST', body: formData });
+                const response = await fetch('/fields', { 
+                    method: 'POST', 
+                    body: formData,
+                    credentials: 'include'
+                });
                 
                 // Read response body exactly once based on content-type
                 const contentType = response.headers.get('content-type') || '';
@@ -2117,7 +2123,11 @@
                 formData.append('user_text', userText);
                 formData.append('current_values', JSON.stringify(currentValues));
 
-                const response = await fetch('/ai-extract', { method: 'POST', body: formData });
+                const response = await fetch('/ai-extract', { 
+                    method: 'POST', 
+                    body: formData,
+                    credentials: 'include'
+                });
                 
                 const contentType = response.headers.get('content-type') || '';
                 
@@ -2327,7 +2337,11 @@
                 formData.append('current_values', JSON.stringify(currentValues));
                 formData.append('feedback', feedback);
 
-                const response = await fetch('/ai-fix', { method: 'POST', body: formData });
+                const response = await fetch('/ai-fix', { 
+                    method: 'POST', 
+                    body: formData,
+                    credentials: 'include'
+                });
                 
                 const contentType = response.headers.get('content-type') || '';
                 
@@ -2402,7 +2416,11 @@
             }
             
             try {
-                const response = await fetch('/fill', { method: 'POST', body: formData });
+                const response = await fetch('/fill', { 
+                    method: 'POST', 
+                    body: formData,
+                    credentials: 'include'
+                });
                 
                 // Read response body exactly once based on content-type
                 const contentType = response.headers.get('content-type') || '';
