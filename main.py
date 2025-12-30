@@ -895,14 +895,14 @@ async def extract_fields(
                 filename, content_type, file_size, is_authenticated, user_id, user_email)
     
     try:
-        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-        pdf_bytes = await read_upload_file(pdf_file)
+    pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
@@ -931,10 +931,10 @@ async def extract_fields(
         except Exception as e:
             logger.warning("Failed to save uploaded PDF: upload_id=%s error=%s", upload_id, e)
             upload_id = None  # Continue without preview if save fails
-        
-        try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s upload_id=%s",
                        filename, file_size, field_count, is_authenticated, user_id, upload_id)
@@ -965,14 +965,14 @@ async def extract_fields(
             
             # Return stable JSON shape that frontend expects
             return JSONResponse(response_data)
-        except HTTPException:
-            raise
-        except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -2246,11 +2246,8 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     if IS_PRODUCTION and not x_forwarded_proto and scheme != "https":
         is_https = True  # Default to secure in production
     
-    # Build redirect URL - use PUBLIC_BASE_URL if set, otherwise relative
+    # Build redirect URL - use relative redirect
     redirect_url = "/?auth_success=1"
-    public_base_url = get_public_base_url(request)
-    if public_base_url and public_base_url != str(request.base_url).rstrip("/"):
-        redirect_url = f"{public_base_url}/?auth_success=1"
     
     # Log verification details (no secrets)
     session_id_prefix = session_id[:8] if len(session_id) >= 8 else "short"
@@ -2532,18 +2529,25 @@ async def debug_last_magic_link(request: Request, email: Optional[str] = None) -
         {ok:true, magic_link:"https://.../auth/verify?token=..."} for most recent unexpired token
         {ok:false, detail:"not found"} if none
     """
-    # Check if enabled: DEBUG=1 OR DEBUG_KEY is set
+    # In production, require DEBUG_KEY to be set and match header
+    # In dev (DEBUG=1), allow without header
     debug_key = get_env("DEBUG_KEY")
-    is_debug_mode = DEBUG or bool(debug_key)
     
-    if not is_debug_mode:
-        raise HTTPException(status_code=404, detail="Not found")
-    
-    # If DEBUG_KEY is set, require X-Debug-Key header
-    if debug_key:
+    if IS_PRODUCTION:
+        # Production: require DEBUG_KEY env var and matching header
+        if not debug_key:
+            raise HTTPException(status_code=404, detail="Not found")
         provided_key = request.headers.get("X-Debug-Key", "")
         if not provided_key or provided_key != debug_key:
             raise HTTPException(status_code=403, detail="Invalid debug key")
+    else:
+        # Dev mode: allow if DEBUG=1, or if DEBUG_KEY is set and matches
+        if not DEBUG and not debug_key:
+            raise HTTPException(status_code=404, detail="Not found")
+        if debug_key:
+            provided_key = request.headers.get("X-Debug-Key", "")
+            if not provided_key or provided_key != debug_key:
+                raise HTTPException(status_code=403, detail="Invalid debug key")
     
     # Email is required
     if not email:
