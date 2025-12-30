@@ -2270,9 +2270,15 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     )
     
     # Log cookie setting (no secrets, only metadata)
-    set_cookie_header_present = "session" in str(response.headers.get("set-cookie", ""))
-    logger.info("GET /auth/verify: set-cookie_header_present=%s cookie_name=session max_age=2592000 samesite=lax secure=%s httponly=True",
-                set_cookie_header_present, is_https)
+    # Verify Set-Cookie header is actually on the response object we're returning
+    set_cookie_header = response.headers.get("set-cookie", "")
+    set_cookie_header_present = "session" in str(set_cookie_header)
+    logger.info("GET /auth/verify: token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s set-cookie_header_present=%s cookie_name=session max_age=2592000 samesite=lax secure=%s httponly=True",
+                token_prefix, user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host, redirect_url, set_cookie_header_present, is_https)
+    
+    # Double-check: ensure cookie is actually set before returning
+    if not set_cookie_header_present:
+        logger.error("CRITICAL: Set-Cookie header NOT found on RedirectResponse! Cookie will not be sent to client.")
     
     return response
 
