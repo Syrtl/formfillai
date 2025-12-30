@@ -2054,26 +2054,35 @@
         // Initialize button state
         updateAnalyzeButtonState();
         
-        // Analyze PDF button
-        analyzeBtn.addEventListener('click', async () => {
-            const file = pdfFileInput.files[0];
-            if (!file) {
-                setStatus(t('errors.select_pdf_first'), true);
-                showToast(t('errors.select_pdf_first') || 'Please select a PDF file first', 'error');
-                return;
-            }
+        // Analyze PDF button - ensure it's not inside a form that would submit
+        analyzeBtn.addEventListener('click', async (e) => {
+            try {
+                // Prevent any form submission or default navigation
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                
+                const file = pdfFileInput.files[0];
+                if (!file) {
+                    const msg = (typeof t === 'function' ? t('errors.select_pdf_first') : null) || 'Please select a PDF file first';
+                    setStatus(msg, true);
+                    showToast(msg, 'error');
+                    return;
+                }
 
-            // Log analyze click with file info
-            console.log('Analyze clicked:', {
-                filename: file.name,
-                size: file.size,
-                type: file.type
-            });
+                // Log analyze click with file info
+                console.log('Analyze clicked:', {
+                    filename: file.name,
+                    size: file.size,
+                    type: file.type
+                });
 
-            setStatus(t('analyzing'));
-            showToast('Uploading...', 'success');
-            analyzeBtn.disabled = true;
-            analyzeBtn.textContent = t('analyzing');
+                // Immediately show feedback and disable button
+                setStatus('Uploading...', false);
+                showToast('Uploading...', 'success');
+                analyzeBtn.disabled = true;
+                analyzeBtn.textContent = (typeof t === 'function' ? t('analyzing') : null) || 'Analyzing...';
 
             const formData = new FormData();
             formData.append('pdf_file', file);
