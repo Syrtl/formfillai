@@ -58,11 +58,13 @@ if not OPENAI_AVAILABLE:
 BASE_DIR = Path(__file__).resolve().parent
 TMP_DIR = BASE_DIR / "tmp"
 PREVIEW_DIR = BASE_DIR / "tmp" / "previews"
+UPLOAD_DIR = BASE_DIR / "tmp" / "uploads"  # For uploaded PDFs before analysis
 STATIC_DIR = BASE_DIR / "static"
 LOCALES_DIR = STATIC_DIR / "i18n"
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 TEMP_TTL_SECONDS = 30 * 60  # 30 minutes
 PREVIEW_TTL_SECONDS = 60 * 60  # 1 hour for previews
+UPLOAD_TTL_SECONDS = 60 * 60  # 1 hour for uploaded PDFs
 CLEAN_INTERVAL_SECONDS = 5 * 60  # clean every 5 minutes
 
 # Supported languages (ordered by popularity after English)
@@ -269,6 +271,7 @@ if STATIC_DIR.exists():
 def ensure_tmp_dir() -> None:
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def normalize_language(lang: Optional[str]) -> str:
@@ -662,6 +665,15 @@ def cleanup_tmp_directory(ttl_seconds: int = TEMP_TTL_SECONDS) -> None:
                     path.unlink(missing_ok=True)
             except OSError as exc:
                 logger.warning("Failed to cleanup preview %s: %s", path, exc)
+    
+    # Cleanup upload directory
+    if UPLOAD_DIR.exists():
+        for path in UPLOAD_DIR.glob("*"):
+            try:
+                if path.is_file() and now - path.stat().st_mtime > UPLOAD_TTL_SECONDS:
+                    path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to cleanup upload %s: %s", path, exc)
 
 
 async def periodic_cleanup() -> None:
@@ -883,14 +895,14 @@ async def extract_fields(
                 filename, content_type, file_size, is_authenticated, user_id, user_email)
     
     try:
-        validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
+    validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
     except HTTPException as e:
         logger.warning("POST /fields failed: invalid file type filename=%s user_id=%s error=%s",
                       filename, user_id, e.detail)
         raise
     
     try:
-        pdf_bytes = await read_upload_file(pdf_file)
+    pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
                     filename, file_size, content_type, is_authenticated, user_id, user_email)
@@ -906,13 +918,28 @@ async def extract_fields(
         
         # Compute PDF hash for mapping cache
         pdf_hash = db.compute_pdf_hash(pdf_bytes)
-    
+        
+        # Save uploaded PDF for preview
+        ensure_tmp_dir()
+        upload_id = secrets.token_urlsafe(16)
+        upload_path = UPLOAD_DIR / f"{upload_id}.pdf"
+        
         try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+            with upload_path.open("wb") as fh:
+                fh.write(pdf_bytes)
+            logger.info("Saved uploaded PDF: upload_id=%s path=%s size=%d", upload_id, upload_path, file_size)
+        except Exception as e:
+            logger.warning("Failed to save uploaded PDF: upload_id=%s error=%s", upload_id, e)
+            upload_id = None  # Continue without preview if save fails
+        
+        try:
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
-            logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s",
-                       filename, file_size, field_count, is_authenticated, user_id)
+            logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s upload_id=%s",
+                       filename, file_size, field_count, is_authenticated, user_id, upload_id)
             
             if field_count == 0:
                 logger.warning("POST /fields: no fields found filename=%s size=%d authenticated=%s user_id=%s",
@@ -922,8 +949,8 @@ async def extract_fields(
                     detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
                 )
             
-            # Return stable JSON shape that frontend expects
-            return JSONResponse({
+            # Build response with preview URL if upload was saved
+            response_data = {
                 "ok": True,
                 "fields": fields_metadata,
                 "pdf_hash": pdf_hash,
@@ -932,15 +959,22 @@ async def extract_fields(
                     "filename": filename,
                     "size": file_size
                 }
-            })
-        except HTTPException:
-            raise
-        except Exception as exc:
+            }
+            
+            if upload_id:
+                response_data["upload_id"] = upload_id
+                response_data["preview_url"] = f"/preview-upload/{upload_id}"
+            
+            # Return stable JSON shape that frontend expects
+            return JSONResponse(response_data)
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -1506,6 +1540,40 @@ async def preview_pdf(file_id: str, request: Request) -> FileResponse:
                  response.headers.get("Content-Type"), 
                  response.headers.get("Content-Disposition"),
                  response.headers.get("X-Frame-Options"))
+    
+    return response
+
+
+@app.get("/preview-upload/{upload_id}")
+async def preview_upload_pdf(upload_id: str, request: Request) -> FileResponse:
+    """Return uploaded PDF for inline preview with proper headers for iframe rendering."""
+    ensure_tmp_dir()
+    upload_path = UPLOAD_DIR / f"{upload_id}.pdf"
+    
+    if not upload_path.exists():
+        logger.warning("Upload preview not found: upload_id=%s", upload_id)
+        raise HTTPException(status_code=404, detail="Upload preview not found or expired.")
+    
+    file_size = upload_path.stat().st_size
+    logger.info("Serving upload preview: upload_id=%s, size=%d bytes", upload_id, file_size)
+    
+    # Use FileResponse with inline disposition for iframe rendering
+    response = FileResponse(
+        path=upload_path,
+        media_type="application/pdf",
+        filename="uploaded.pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="uploaded.pdf"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            # Allow same-origin framing (not DENY) - required for iframe rendering
+            "X-Frame-Options": "SAMEORIGIN"
+        }
+    )
+    
+    # Ensure Content-Type is explicitly set
+    response.headers["Content-Type"] = "application/pdf"
     
     return response
 

@@ -2183,9 +2183,49 @@
                     fieldsContainer.style.display = 'none';
                     submitBtn.style.display = 'none';
                 } else {
-                    // Success - render fields
+                    // Success - render preview + fields
                     const count = currentFields.length;
                     console.log('Fields found:', count);
+                    
+                    // Show preview if preview_url is available
+                    if (responseData.preview_url) {
+                        const previewUrl = `${responseData.preview_url}?t=${Date.now()}`;
+                        console.log('Setting preview iframe src:', previewUrl);
+                        
+                        // Set up fallback link
+                        previewLink.href = responseData.preview_url;
+                        previewLink.textContent = 'Open preview in new tab';
+                        previewFallback.style.display = 'none';
+                        
+                        // Handle iframe load/error events
+                        previewIframe.onload = () => {
+                            console.log('Preview iframe loaded successfully');
+                            if (previewLoadTimeout) {
+                                clearTimeout(previewLoadTimeout);
+                                previewLoadTimeout = null;
+                            }
+                            previewFallback.style.display = 'none';
+                        };
+                        previewIframe.onerror = () => {
+                            console.error('Preview iframe failed to load');
+                            previewFallback.style.display = 'block';
+                        };
+                        
+                        // Set timeout to show fallback if iframe doesn't load within 5 seconds
+                        previewLoadTimeout = setTimeout(() => {
+                            console.warn('Preview iframe load timeout, showing fallback');
+                            previewFallback.style.display = 'block';
+                        }, 5000);
+                        
+                        // Set iframe src and show container
+                        previewIframe.src = previewUrl;
+                        previewContainer.style.display = 'block';
+                        previewContainer.setAttribute('data-has-preview', 'true');
+                        mainContentGrid.classList.add('has-preview');
+                        aiFixContainer.style.display = 'none';
+                    }
+                    
+                    // Render fields
                     renderFields(currentFields);
                     fieldsContainer.style.display = 'block';
                     submitBtn.style.display = 'block';

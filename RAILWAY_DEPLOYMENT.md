@@ -259,6 +259,53 @@ curl "https://your-app.railway.app/debug/last-magic-link?email=user@example.com"
 - Check SMTP configuration if email delivery is enabled
 - Review logs for magic link creation/verification
 
+## Copy/Paste Acceptance Tests
+
+Use these curl commands to verify the app is working correctly:
+
+### 1) Send magic link:
+```bash
+curl -i -X POST https://<APP>/auth/send-magic-link \
+  -F "email=<YOUR_EMAIL>"
+```
+
+Expected: HTTP 200 with `{"ok": true}`. Check your email for the magic link.
+
+### 2) Verify token and capture cookie (for testing):
+After receiving the email, extract the token from the URL (`?token=...`) and run:
+```bash
+curl -i -c cookies.txt -X POST https://<APP>/auth/verify \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<TOKEN>"}'
+```
+
+Expected: HTTP 200 with `{"ok":true,"authenticated":true,"email":"...","plan":"free|pro"}`. Cookie file `cookies.txt` should contain a `session` cookie.
+
+### 3) Confirm cookie is stored + auth true:
+```bash
+# Check cookie presence
+curl -s -b cookies.txt https://<APP>/debug/cookies
+
+# Confirm authenticated
+curl -s -b cookies.txt https://<APP>/api/me
+```
+
+Expected:
+- `/debug/cookies`: Shows `"session_present": true` and `"session_prefix": "..."` (first 8 chars)
+- `/api/me`: Returns `{"authenticated": true, "email": "...", "plan": "..."}`
+
+### 4) Analyze PDF (authenticated):
+```bash
+curl -i -b cookies.txt -X POST https://<APP>/fields \
+  -F "pdf_file=@/absolute/path/to/file.pdf"
+```
+
+Expected:
+- HTTP 200
+- JSON includes `preview_url` (e.g., `"/preview-upload/..."`)
+- JSON includes `fields` array with extracted form fields
+- Visiting `preview_url` in browser renders PDF inline in iframe
+
 ### Testing Authentication Without Browser DevTools
 
 You can test the authentication flow using curl commands:
