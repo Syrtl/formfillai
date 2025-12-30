@@ -891,8 +891,8 @@ async def extract_fields(
     except:
         pass
     
-    logger.info("POST /fields: filename=%s content_type=%s size=%d authenticated=%s user_id=%s user_email=%s",
-                filename, content_type, file_size, is_authenticated, user_id, user_email)
+    logger.info("POST /fields HIT: filename=%s content_type=%s size=%d authenticated=%s user_id=%s user_email=%s cookie_keys=%s session_present=%s",
+                filename, content_type, file_size, is_authenticated, user_id, user_email, cookie_keys, session_present)
     
     try:
         validate_file_type(pdf_file, ALLOWED_PDF_TYPES, extensions=(".pdf",))
