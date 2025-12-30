@@ -2716,6 +2716,16 @@
                 submitBtn.textContent = t('fill_my_form');
             }
         });
+        
+        // Close debug panel button
+        const debugPanelClose = document.getElementById('debug-panel-close');
+        if (debugPanelClose) {
+            debugPanelClose.addEventListener('click', () => {
+                const panel = document.getElementById('debug-panel');
+                if (panel) panel.style.display = 'none';
+            });
+        }
+        }); // End DOMContentLoaded wrapper
     </script>
 </body>
 </html>
