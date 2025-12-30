@@ -1256,6 +1256,83 @@
         window.updatePageTranslations = updatePageTranslations;
     </script>
     <script>
+        // Safe translation fallback - must be defined before any handlers use it
+        if (typeof window.t !== 'function') {
+            window.t = function(key, vars) {
+                // If vars is provided, interpolate {key} patterns
+                if (vars && typeof vars === 'object') {
+                    let result = key;
+                    for (const [k, v] of Object.entries(vars)) {
+                        result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v || ''));
+                    }
+                    return result;
+                }
+                // Return key as-is if no translation available
+                return key;
+            };
+        }
+        
+        // Global error handler - show errors as toast and banner
+        function showErrorBanner(message) {
+            // Remove existing banner
+            const existingBanner = document.getElementById('error-banner');
+            if (existingBanner) {
+                existingBanner.remove();
+            }
+            
+            // Create error banner at bottom-left
+            const banner = document.createElement('div');
+            banner.id = 'error-banner';
+            banner.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                background: var(--error);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 6px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                z-index: 10001;
+                max-width: 400px;
+                font-size: 13px;
+                line-height: 1.4;
+                word-wrap: break-word;
+            `;
+            banner.textContent = message.length > 200 ? message.substring(0, 200) + '...' : message;
+            document.body.appendChild(banner);
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if (banner.parentNode) {
+                    banner.style.opacity = '0';
+                    banner.style.transition = 'opacity 0.3s';
+                    setTimeout(() => banner.remove(), 300);
+                }
+            }, 10000);
+        }
+        
+        // Catch unhandled errors
+        window.addEventListener('error', (event) => {
+            const message = event.message || 'Unknown error';
+            const truncated = message.length > 200 ? message.substring(0, 200) + '...' : message;
+            console.error('Unhandled error:', event.error || message);
+            if (typeof showToast === 'function') {
+                showToast('Error: ' + truncated, 'error');
+            }
+            showErrorBanner('JS Error: ' + truncated);
+        });
+        
+        // Catch unhandled promise rejections
+        window.addEventListener('unhandledrejection', (event) => {
+            const message = event.reason?.message || String(event.reason) || 'Promise rejected';
+            const truncated = message.length > 200 ? message.substring(0, 200) + '...' : message;
+            console.error('Unhandled rejection:', event.reason);
+            if (typeof showToast === 'function') {
+                showToast('Error: ' + truncated, 'error');
+            }
+            showErrorBanner('Promise Error: ' + truncated);
+        });
+        
         // Authentication state
         let currentPdfHash = null;
         let userProfiles = [];
@@ -1545,33 +1622,34 @@
         });
         
         sendMagicLinkBtn?.addEventListener('click', async (e) => {
-            // Prevent any default form submission behavior
-            if (e) {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            
-            const email = signInEmailInput.value.trim();
-            if (!email) {
-                signInStatus.innerHTML = '<div class="login-status error">Please enter an email address.</div>';
-                return;
-            }
-            
-            // Validate email format
-            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailPattern.test(email)) {
-                signInStatus.innerHTML = '<div class="login-status error">Please enter a valid email address.</div>';
-                return;
-            }
-            
-            sendMagicLinkBtn.disabled = true;
-            sendMagicLinkBtn.textContent = 'Sending...';
-            signInStatus.innerHTML = '';
-            
-            // Log request for debugging
-            console.log('Sign in request:', { email, endpoint: '/auth/send-magic-link', method: 'POST' });
-            
             try {
+                // Prevent any default form submission behavior
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                
+                const email = signInEmailInput.value.trim();
+                if (!email) {
+                    signInStatus.innerHTML = '<div class="login-status error">Please enter an email address.</div>';
+                    return;
+                }
+                
+                // Validate email format
+                const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailPattern.test(email)) {
+                    signInStatus.innerHTML = '<div class="login-status error">Please enter a valid email address.</div>';
+                    return;
+                }
+                
+                sendMagicLinkBtn.disabled = true;
+                sendMagicLinkBtn.textContent = 'Sending...';
+                signInStatus.innerHTML = '';
+                
+                // Log request for debugging
+                console.log('Sign in request:', { email, endpoint: '/auth/send-magic-link', method: 'POST' });
+                
+                try {
                 const formData = new FormData();
                 formData.append('email', email);
                 
@@ -1637,11 +1715,24 @@
                     const errorDetail = responseData?.detail || 'Failed to send magic link. Please try again.';
                     signInStatus.innerHTML = `<div class="login-status error">${errorDetail}</div>`;
                 }
+                } catch (err) {
+                    const errorMsg = err.message || 'Failed to send magic link. Please try again.';
+                    signInStatus.innerHTML = `<div class="login-status error">Error: ${errorMsg}</div>`;
+                    if (typeof showToast === 'function') {
+                        showToast('Sign-in error: ' + errorMsg, 'error');
+                    }
+                    console.error('Sign-in error:', err);
+                } finally {
+                    sendMagicLinkBtn.disabled = false;
+                    sendMagicLinkBtn.textContent = 'Send magic link';
+                }
             } catch (err) {
-                signInStatus.innerHTML = `<div class="login-status error">Error: ${err.message}</div>`;
-            } finally {
-                sendMagicLinkBtn.disabled = false;
-                sendMagicLinkBtn.textContent = 'Send magic link';
+                // Outer catch for any unexpected errors
+                const errorMsg = err.message || 'Unexpected error. Please try again.';
+                if (typeof showToast === 'function') {
+                    showToast('Sign-in error: ' + errorMsg, 'error');
+                }
+                console.error('Unexpected sign-in error:', err);
             }
         });
         

@@ -1470,21 +1470,25 @@ async def preview_pdf(file_id: str, request: Request) -> FileResponse:
     file_size = preview_path.stat().st_size
     logger.info("Serving preview: file_id=%s, size=%d bytes", file_id, file_size)
     
+    # Use FileResponse with inline disposition for iframe rendering
     response = FileResponse(
         path=preview_path,
         media_type="application/pdf",
-        filename="filled_form.pdf",
+        filename="preview.pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="preview.pdf"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            # Allow same-origin framing (not DENY)
+            "X-Frame-Options": "SAMEORIGIN"
+        }
     )
-    # Set headers for inline viewing
-    response.headers["Content-Disposition"] = 'inline; filename="filled_form.pdf"'
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    # Allow same-origin framing
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     
-    logger.debug("Preview response headers: Content-Type=%s, Content-Disposition=%s", 
-                 response.headers.get("Content-Type"), response.headers.get("Content-Disposition"))
+    logger.debug("Preview response headers: Content-Type=%s, Content-Disposition=%s, X-Frame-Options=%s", 
+                 response.headers.get("Content-Type"), 
+                 response.headers.get("Content-Disposition"),
+                 response.headers.get("X-Frame-Options"))
     
     return response
 
