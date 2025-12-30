@@ -1225,8 +1225,19 @@ async def get_me(request: Request) -> JSONResponse:
                 cookie_keys, session_present, session_prefix, db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
     
     user = await get_current_user_async(request)
+    
+    # Check if session was found in DB
+    session_found = False
+    if session_cookie:
+        try:
+            session = await db.get_session(session_cookie)
+            session_found = session is not None
+        except Exception as e:
+            logger.warning("GET /api/me: error looking up session: %s", e)
+    
     if not user:
-        logger.info("api/me: not authenticated (no user found)")
+        logger.info("GET /api/me: not authenticated session_present=%s session_prefix=%s session_found=%s",
+                    session_present, session_prefix, session_found)
         return JSONResponse({
             "authenticated": False
         })
@@ -1239,8 +1250,8 @@ async def get_me(request: Request) -> JSONResponse:
     # Determine plan string
     plan = "pro" if is_pro else "free"
     
-    logger.info("api/me: authenticated user_id=%s email=%s plan=%s backend=%s",
-                user.get("id"), user.get("email"), plan, db_backend)
+    logger.info("GET /api/me: authenticated session_present=%s session_prefix=%s session_found=%s user_id=%s email=%s plan=%s backend=%s",
+                session_present, session_prefix, session_found, user.get("id"), user.get("email"), plan, db_backend)
     
     return JSONResponse({
         "authenticated": True,
@@ -2018,36 +2029,31 @@ async def send_magic_link(request: Request) -> JSONResponse:
         )
 
 
-@app.get("/auth/verify")
-async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
-    """Verify magic link token and create session.
+async def _verify_token_and_create_session(request: Request, token: str) -> tuple:
+    """Shared logic for verifying token and creating session.
     
-    Validates token, marks it as used, creates session, and sets secure cookie.
+    Returns: (email, session_id, user_id, error_message)
+    If error_message is set, email/session_id/user_id will be None.
     """
-    # Log backend consistency
-    db_backend = db.get_db_backend_name()
-    database_url_set = bool(os.getenv("DATABASE_URL"))
-    logger.info("auth/verify: backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
-                db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
-    
     # Log token prefix (first 6 chars) for debugging
     token_prefix = token[:6] if token and len(token) >= 6 else "none"
-    logger.info("Magic link verification request: token_prefix=%s", token_prefix)
+    logger.info("Token verification request: token_prefix=%s", token_prefix)
     
     # Check database availability
     if not db.is_db_available():
         logger.error("Database not available for magic link verification")
-        return RedirectResponse(url="/?auth_error=db_unavailable", status_code=303)
+        return (None, None, None, "Database temporarily unavailable")
     
     # Verify token (this marks it as used atomically)
     email = await db.verify_magic_token(token)
     if not email:
-        logger.warning("Magic link verification failed: token_prefix=%s reason=invalid/expired/used backend=%s", 
+        db_backend = db.get_db_backend_name()
+        logger.warning("Token verification failed: token_prefix=%s reason=invalid/expired/used backend=%s", 
                        token_prefix, db_backend)
-        return RedirectResponse(url="/?auth_error=invalid_token", status_code=303)
+        return (None, None, None, "Invalid or expired token")
     
-    logger.info("Magic link verified successfully: token_prefix=%s email=%s backend=%s", 
-                token_prefix, email, db_backend)
+    logger.info("Token verified successfully: token_prefix=%s email=%s", 
+                token_prefix, email)
     
     # Get or create user
     user = await db.get_user_by_email(email)
@@ -2059,8 +2065,44 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     
     # Create session (uses active backend - postgres or sqlite)
     session_id = await db.create_session(user_id)
+    db_backend = db.get_db_backend_name()
     logger.info("Session created: user_id=%s session_id_prefix=%s backend=%s", 
                 user_id, session_id[:8] if len(session_id) >= 8 else "short", db_backend)
+    
+    return (email, session_id, user_id, None)
+
+
+@app.post("/auth/verify")
+async def verify_magic_link_post(request: Request) -> JSONResponse:
+    """Verify magic link token via POST and return JSON (no redirect).
+    
+    Accepts token in JSON body {"token": "..."} OR FormData token=...
+    Returns JSON and sets session cookie.
+    """
+    # Extract token from request
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            token = body.get("token", "").strip()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body. Expected {token: ...}")
+    else:
+        # FormData
+        form_data = await request.form()
+        token = form_data.get("token", "").strip()
+    
+    if not token:
+        raise HTTPException(status_code=400, detail="Token is required")
+    
+    # Verify token and create session
+    email, session_id, user_id, error_msg = await _verify_token_and_create_session(request, token)
+    
+    if error_msg:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "authenticated": False, "detail": error_msg}
+        )
     
     # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
     scheme = request.url.scheme
@@ -2068,7 +2110,75 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     host = request.headers.get("host", "unknown")
     
     # Detect HTTPS: prioritize X-Forwarded-Proto (set by Railway/proxy)
+    # In production, default to secure=True when x-forwarded-proto is missing
     is_https = (x_forwarded_proto == "https") or (scheme == "https")
+    if IS_PRODUCTION and not x_forwarded_proto and scheme != "https":
+        is_https = True  # Default to secure in production
+    
+    # Get user plan
+    user = await db.get_user_by_email(email)
+    is_pro = user.get("is_pro", False) if user else False
+    plan = "pro" if is_pro else "free"
+    
+    # Create JSON response and set cookie
+    response = JSONResponse({
+        "ok": True,
+        "authenticated": True,
+        "email": email,
+        "plan": plan
+    })
+    
+    response.set_cookie(
+        key="session",
+        value=session_id,
+        httponly=True,
+        secure=is_https,
+        samesite="lax",
+        path="/",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+        # Do NOT set domain explicitly - let browser use current host
+    )
+    
+    # Log cookie setting (no secrets)
+    session_id_prefix = session_id[:8] if len(session_id) >= 8 else "short"
+    logger.info("POST /auth/verify: token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s cookie_set=session max_age=2592000 samesite=lax httponly=True",
+                token[:6] if len(token) >= 6 else "none", user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host)
+    
+    return response
+
+
+@app.get("/auth/verify")
+async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
+    """Verify magic link token and create session (GET with redirect).
+    
+    Validates token, marks it as used, creates session, and sets secure cookie.
+    Redirects to /?auth_success=1 on success.
+    """
+    # Log backend consistency
+    db_backend = db.get_db_backend_name()
+    database_url_set = bool(os.getenv("DATABASE_URL"))
+    logger.info("GET /auth/verify: backend=%s DATABASE_URL=%s ENV=%s DEBUG=%s IS_PRODUCTION=%s",
+                db_backend, database_url_set, ENV or "not set", DEBUG, IS_PRODUCTION)
+    
+    # Verify token and create session
+    email, session_id, user_id, error_msg = await _verify_token_and_create_session(request, token)
+    
+    if error_msg:
+        if error_msg == "Database temporarily unavailable":
+            return RedirectResponse(url="/?auth_error=db_unavailable", status_code=303)
+        else:
+            return RedirectResponse(url="/?auth_error=invalid_token", status_code=303)
+    
+    # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
+    scheme = request.url.scheme
+    x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    host = request.headers.get("host", "unknown")
+    
+    # Detect HTTPS: prioritize X-Forwarded-Proto (set by Railway/proxy)
+    # In production, default to secure=True when x-forwarded-proto is missing
+    is_https = (x_forwarded_proto == "https") or (scheme == "https")
+    if IS_PRODUCTION and not x_forwarded_proto and scheme != "https":
+        is_https = True  # Default to secure in production
     
     # Build redirect URL - use PUBLIC_BASE_URL if set, otherwise relative
     redirect_url = "/?auth_success=1"
@@ -2078,7 +2188,8 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     
     # Log verification details (no secrets)
     session_id_prefix = session_id[:8] if len(session_id) >= 8 else "short"
-    logger.info("auth/verify: token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s",
+    token_prefix = token[:6] if len(token) >= 6 else "none"
+    logger.info("GET /auth/verify: token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s",
                 token_prefix, user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host, redirect_url)
     
     # Create a single RedirectResponse object and set cookie on it
@@ -2094,8 +2205,12 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
         max_age=60 * 60 * 24 * 30,  # 30 days
         # Do NOT set domain explicitly - let browser use current host
     )
-    logger.info("Set-cookie issued: secure=%s samesite=lax path=/ httponly=True max_age=2592000 backend=%s", 
-                is_https, db_backend)
+    
+    # Log cookie setting (no secrets, only metadata)
+    set_cookie_header_present = "session" in str(response.headers.get("set-cookie", ""))
+    logger.info("GET /auth/verify: set-cookie_header_present=%s cookie_name=session max_age=2592000 samesite=lax secure=%s httponly=True",
+                set_cookie_header_present, is_https)
+    
     return response
 
 

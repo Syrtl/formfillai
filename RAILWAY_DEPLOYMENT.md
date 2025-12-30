@@ -259,6 +259,48 @@ curl "https://your-app.railway.app/debug/last-magic-link?email=user@example.com"
 - Check SMTP configuration if email delivery is enabled
 - Review logs for magic link creation/verification
 
+### Testing Authentication Without Browser DevTools
+
+You can test the authentication flow using curl commands:
+
+**A) Request magic link:**
+- Use the app UI or POST to `/auth/send-magic-link`
+- Check server logs for the magic link token (or use `/debug/last-magic-link` endpoint)
+
+**B) Test session via curl (no browser):**
+
+1. **Verify token and capture cookie:**
+   ```bash
+   curl -i -c cookies.txt -X POST https://<APP>/auth/verify \
+     -H "Content-Type: application/json" \
+     -d '{"token":"<TOKEN>"}'
+   ```
+   This should return `{"ok":true,"authenticated":true,"email":"...","plan":"free|pro"}` and set a `session` cookie.
+
+2. **Confirm cookie is being sent back:**
+   ```bash
+   curl -s -b cookies.txt https://<APP>/debug/cookies
+   ```
+   Should show `"session_present": true` and `"session_prefix": "..."` (first 8 chars).
+
+3. **Confirm authenticated:**
+   ```bash
+   curl -s -b cookies.txt https://<APP>/api/me
+   ```
+   Should return `{"authenticated": true, "email": "...", "plan": "..."}`.
+
+4. **Test fields endpoint:**
+   ```bash
+   curl -i -b cookies.txt -X POST https://<APP>/fields \
+     -F "pdf_file=@<PATH_TO_PDF>"
+   ```
+   Should return 200 with fields JSON (not 401).
+
+**Debug Endpoints:**
+- `GET /debug/cookies` - Shows which cookies are present (no secrets)
+- `GET /debug/auth` - Shows authentication status and session lookup
+- `POST /auth/verify` - Verify token via POST (returns JSON, sets cookie)
+
 ## Files Added for Railway
 
 - `Procfile` - Defines the web process with Railway's `$PORT` variable

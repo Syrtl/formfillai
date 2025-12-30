@@ -2148,8 +2148,9 @@
                     
                     // Map status codes to user-friendly messages
                     if (response.status === 401) {
-                        detail = 'Please sign in to analyze PDFs.';
-                        showToast('Please sign in to analyze PDFs.', 'error');
+                        detail = 'Not signed in. Please sign in first.';
+                        showToast('Not signed in. Please sign in first.', 'error');
+                        setStatus('Not signed in. Please sign in first.', true);
                     } else if (response.status === 403) {
                         detail = 'You do not have permission to analyze PDFs.';
                     } else if (response.status === 413) {
