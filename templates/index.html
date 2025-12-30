@@ -1014,6 +1014,11 @@
                 <button id="submit-btn" type="submit" style="display: none;" data-i18n="fill_my_form">Fill My Form</button>
             </form>
             <p id="status" class="helper" role="status"></p>
+            <!-- Debug/Status area for Analyze PDF -->
+            <div id="analyze-debug" style="display: none; margin-top: 1rem; padding: 0.75rem; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; font-size: 0.85rem; font-family: monospace;">
+                <div><strong>Debug:</strong></div>
+                <div id="analyze-debug-status"></div>
+            </div>
         </section>
         
         <div id="preview-container" style="display: none;">
@@ -2054,14 +2059,23 @@
         // Initialize button state
         updateAnalyzeButtonState();
         
+        // Debug area elements
+        const analyzeDebug = document.getElementById('analyze-debug');
+        const analyzeDebugStatus = document.getElementById('analyze-debug-status');
+        
+        function updateAnalyzeDebug(message) {
+            if (analyzeDebug && analyzeDebugStatus) {
+                analyzeDebug.style.display = 'block';
+                analyzeDebugStatus.textContent = message;
+            }
+        }
+        
         // Analyze PDF button - ensure it's not inside a form that would submit
         analyzeBtn.addEventListener('click', async (e) => {
             try {
                 // Prevent any form submission or default navigation
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
+                e.preventDefault();
+                e.stopPropagation();
                 
                 const file = pdfFileInput.files[0];
                 if (!file) {
@@ -2077,6 +2091,9 @@
                     size: file.size,
                     type: file.type
                 });
+                
+                // Show debug status
+                updateAnalyzeDebug('Analyze clicked - preparing request...');
 
                 // Immediately show feedback and disable button
                 setStatus('Uploading...', false);
@@ -2084,34 +2101,39 @@
                 analyzeBtn.disabled = true;
                 analyzeBtn.textContent = (typeof t === 'function' ? t('analyzing') : null) || 'Analyzing...';
 
-            const formData = new FormData();
-            formData.append('pdf_file', file);
+                const formData = new FormData();
+                formData.append('pdf_file', file);
 
-            try {
-                const response = await fetch('/fields', { 
-                    method: 'POST', 
-                    body: formData,
-                    credentials: 'include'
-                });
+                try {
+                    updateAnalyzeDebug('Sending POST /fields...');
+                    const response = await fetch('/fields', { 
+                        method: 'POST', 
+                        body: formData,
+                        credentials: 'include'
+                    });
+                    
+                    updateAnalyzeDebug(`POST /fields response: ${response.status} ${response.statusText}`);
                 
                 // Read response body exactly once based on content-type
                 const contentType = response.headers.get('content-type') || '';
                 let responseData = null;
                 let responseText = '';
                 
-                // Always log response status and text to console for debugging
-                try {
-                    if (contentType.includes('application/json')) {
-                        responseData = await response.json();
-                        responseText = JSON.stringify(responseData);
-                    } else {
-                        responseText = await response.text();
+                    // Always log response status and text to console and debug area
+                    try {
+                        if (contentType.includes('application/json')) {
+                            responseData = await response.json();
+                            responseText = JSON.stringify(responseData);
+                        } else {
+                            responseText = await response.text();
+                        }
+                        console.log('Analyze PDF response:', response.status, responseText);
+                        updateAnalyzeDebug(`POST /fields response: ${response.status} ${response.statusText}\nBody: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`);
+                    } catch (readErr) {
+                        console.error('Failed to read response:', readErr);
+                        responseText = 'Could not read response body';
+                        updateAnalyzeDebug(`POST /fields response: ${response.status} ${response.statusText}\nError reading body: ${readErr.message}`);
                     }
-                    console.log('Analyze PDF response:', response.status, responseText);
-                } catch (readErr) {
-                    console.error('Failed to read response:', readErr);
-                    responseText = 'Could not read response body';
-                }
                 
                 // Handle non-200 responses - show visible toast
                 if (!response.ok) {
@@ -2127,6 +2149,7 @@
                     // Map status codes to user-friendly messages
                     if (response.status === 401) {
                         detail = 'Please sign in to analyze PDFs.';
+                        showToast('Please sign in to analyze PDFs.', 'error');
                     } else if (response.status === 403) {
                         detail = 'You do not have permission to analyze PDFs.';
                     } else if (response.status === 413) {
