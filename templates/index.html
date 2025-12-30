@@ -2115,7 +2115,7 @@
                 
                 // Handle non-200 responses - show visible toast
                 if (!response.ok) {
-                    let detail = t('errors.failed_analyze');
+                    let detail = (typeof t === 'function' ? t('errors.failed_analyze') : null) || 'Failed to analyze PDF.';
                     
                     // Extract error message from response
                     if (responseData && responseData.detail) {
@@ -2132,7 +2132,7 @@
                     } else if (response.status === 413) {
                         detail = 'File too large. Maximum size is 10MB.';
                     } else if (response.status === 422) {
-                        detail = t('errors.no_form_fields') || 'This PDF does not contain fillable form fields.';
+                        detail = (typeof t === 'function' ? t('errors.no_form_fields') : null) || 'This PDF does not contain fillable form fields.';
                     } else if (response.status === 500) {
                         detail = 'Server error. Please try again later.';
                     }
@@ -2153,8 +2153,9 @@
                 currentPdfHash = responseData.pdf_hash || null;
                 
                 if (currentFields.length === 0) {
-                    setStatus(t('no_fields_found'), true);
-                    showToast(t('no_fields_found') || 'No fillable fields found in PDF', 'error');
+                    const msg = (typeof t === 'function' ? t('no_fields_found') : null) || 'No fillable fields found in PDF';
+                    setStatus(msg, true);
+                    showToast(msg, 'error');
                     fieldsContainer.style.display = 'none';
                     submitBtn.style.display = 'none';
                 } else {
@@ -2164,7 +2165,10 @@
                     renderFields(currentFields);
                     fieldsContainer.style.display = 'block';
                     submitBtn.style.display = 'block';
-                    fieldsSummary.textContent = count === 1 ? t('fields_found', {count}) : t('fields_found_plural', {count});
+                    const summaryText = count === 1 
+                        ? ((typeof t === 'function' ? t('fields_found', {count}) : null) || `Field found: ${count}`)
+                        : ((typeof t === 'function' ? t('fields_found_plural', {count}) : null) || `Fields found: ${count}`);
+                    fieldsSummary.textContent = summaryText;
                     setStatus(`Fields found: ${count}`, false, true);
                     showToast(`Fields found: ${count}`, 'success');
                 }
