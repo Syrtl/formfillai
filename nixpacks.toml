@@ -1,3 +1,12 @@
+[phases.setup]
+nixPkgs = { python = "3.11" }
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "python3 check_syntax.py"
+]
+
 [start]
 cmd = "sh -c 'uvicorn main:app --host 0.0.0.0 --port \"$PORT\" --proxy-headers'"
 

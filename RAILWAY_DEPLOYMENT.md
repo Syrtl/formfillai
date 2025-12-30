@@ -306,6 +306,57 @@ Expected:
 - JSON includes `fields` array with extracted form fields
 - Visiting `preview_url` in browser renders PDF inline in iframe
 
+## Deterministic Curl Tests (No Browser DevTools Required)
+
+Use these curl commands to verify the app works correctly:
+
+### 1) Send magic link:
+```bash
+curl -i -X POST https://<APP>/auth/send-magic-link -F "email=<YOUR_EMAIL>"
+```
+Expected: HTTP 200 with `{"ok": true}`
+
+### 2) Get magic link token (requires DEBUG_KEY):
+```bash
+curl -s "https://<APP>/debug/last-magic-link?email=<YOUR_EMAIL>" \
+  -H "X-Debug-Key: <DEBUG_KEY>"
+```
+Expected: `{"ok": true, "magic_link": "https://.../auth/verify?token=..."}`
+
+### 3) Verify token and capture cookie:
+```bash
+curl -i -c cookies.txt -X POST https://<APP>/auth/verify \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<TOKEN_FROM_STEP_2>"}'
+```
+Expected: HTTP 200 with `{"ok":true,"authenticated":true,"email":"...","plan":"free|pro"}` and `Set-Cookie: session=...` header
+
+### 4) Confirm authenticated:
+```bash
+curl -s -b cookies.txt https://<APP>/api/me
+```
+Expected: `{"authenticated": true, "email": "...", "plan": "..."}`
+
+### 5) Analyze PDF (authenticated):
+```bash
+curl -i -b cookies.txt -X POST https://<APP>/fields \
+  -F "pdf_file=@/absolute/path/to/file.pdf"
+```
+Expected:
+- HTTP 200
+- JSON includes `preview_url: "/preview-upload/..."`
+- JSON includes `fields: [...]` array
+
+### 6) Verify preview URL:
+```bash
+curl -I -b cookies.txt "https://<APP>/preview-upload/<UPLOAD_ID>"
+```
+Expected:
+- HTTP 200
+- `Content-Type: application/pdf`
+- `Content-Disposition: inline`
+- `X-Frame-Options: SAMEORIGIN`
+
 ### Testing Authentication Without Browser DevTools
 
 You can test the authentication flow using curl commands:

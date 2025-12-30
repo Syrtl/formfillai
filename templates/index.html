@@ -1019,6 +1019,14 @@
                 <div><strong>Debug:</strong></div>
                 <div id="analyze-debug-status"></div>
             </div>
+            <!-- Visible Debug Panel (not DevTools) -->
+            <div id="debug-panel" style="position: fixed; bottom: 20px; right: 20px; background: #1a1a1a; color: #0f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; max-width: 400px; max-height: 300px; overflow-y: auto; z-index: 10000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px;">
+                    <strong style="color: #0f0;">Debug Panel</strong>
+                    <button id="debug-panel-close" style="background: #333; color: #0f0; border: 1px solid #555; padding: 2px 8px; cursor: pointer; border-radius: 3px;">×</button>
+                </div>
+                <div id="debug-panel-content"></div>
+            </div>
         </section>
         
         <div id="preview-container" style="display: none;">
@@ -1276,6 +1284,30 @@
                 return key;
             };
         }
+        
+        // Debug panel functions (available globally)
+        function updateDebugPanel(message) {
+            const panel = document.getElementById('debug-panel');
+            const content = document.getElementById('debug-panel-content');
+            if (panel && content) {
+                const timestamp = new Date().toLocaleTimeString();
+                const entry = document.createElement('div');
+                entry.style.marginBottom = '4px';
+                entry.style.color = '#0f0';
+                entry.textContent = `[${timestamp}] ${message}`;
+                content.appendChild(entry);
+                panel.style.display = 'block';
+                // Auto-scroll to bottom
+                panel.scrollTop = panel.scrollHeight;
+                // Keep last 50 entries
+                while (content.children.length > 50) {
+                    content.removeChild(content.firstChild);
+                }
+            }
+        }
+        
+        // Wrap all main script in DOMContentLoaded to ensure DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
         
         // Global error handler - show errors as toast and banner
         function showErrorBanner(message) {
@@ -1629,10 +1661,10 @@
         sendMagicLinkBtn?.addEventListener('click', async (e) => {
             try {
                 // Prevent any default form submission behavior
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
+                e.preventDefault();
+                e.stopPropagation();
+                
+                updateDebugPanel('Sign-in click fired');
                 
                 const email = signInEmailInput.value.trim();
                 if (!email) {
@@ -1653,6 +1685,7 @@
                 
                 // Log request for debugging
                 console.log('Sign in request:', { email, endpoint: '/auth/send-magic-link', method: 'POST' });
+                updateDebugPanel(`POST /auth/send-magic-link (email: ${email})`);
                 
                 try {
                 const formData = new FormData();
@@ -1662,6 +1695,8 @@
                     method: 'POST',
                     body: formData
                 });
+                
+                updateDebugPanel(`Response: ${response.status} ${response.statusText}`);
                 
                 // Read response body
                 const contentType = response.headers.get('content-type') || '';
@@ -2077,11 +2112,14 @@
                 e.preventDefault();
                 e.stopPropagation();
                 
+                updateDebugPanel('Analyze PDF click fired');
+                
                 const file = pdfFileInput.files[0];
                 if (!file) {
                     const msg = (typeof t === 'function' ? t('errors.select_pdf_first') : null) || 'Please select a PDF file first';
                     setStatus(msg, true);
                     showToast(msg, 'error');
+                    updateDebugPanel('Error: No file selected');
                     return;
                 }
 
@@ -2091,6 +2129,8 @@
                     size: file.size,
                     type: file.type
                 });
+                
+                updateDebugPanel(`POST /fields (file: ${file.name}, size: ${file.size})`);
                 
                 // Show debug status
                 updateAnalyzeDebug('Analyze clicked - preparing request...');
@@ -2112,6 +2152,7 @@
                         credentials: 'include'
                     });
                     
+                    updateDebugPanel(`Response: ${response.status} ${response.statusText}`);
                     updateAnalyzeDebug(`POST /fields response: ${response.status} ${response.statusText}`);
                 
                 // Read response body exactly once based on content-type
@@ -2128,7 +2169,9 @@
                             responseText = await response.text();
                         }
                         console.log('Analyze PDF response:', response.status, responseText);
-                        updateAnalyzeDebug(`POST /fields response: ${response.status} ${response.statusText}\nBody: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`);
+                        const responsePreview = responseText.substring(0, 200) + (responseText.length > 200 ? '...' : '');
+                        updateDebugPanel(`Response body: ${responsePreview}`);
+                        updateAnalyzeDebug(`POST /fields response: ${response.status} ${response.statusText}\nBody: ${responsePreview}`);
                     } catch (readErr) {
                         console.error('Failed to read response:', readErr);
                         responseText = 'Could not read response body';
