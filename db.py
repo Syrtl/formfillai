@@ -507,6 +507,44 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                 return None
 
 
+async def get_all_users() -> list[Dict[str, Any]]:
+    """Get all users."""
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users ORDER BY created_at DESC"
+            )
+            return [
+                {
+                    "id": row["id"],
+                    "email": row["email"],
+                    "created_at": row["created_at"],
+                    "is_pro": bool(row["is_pro"]),
+                    "plan": "pro" if row["is_pro"] else "free",
+                    "stripe_customer_id": row["stripe_customer_id"],
+                }
+                for row in rows
+            ]
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users ORDER BY created_at DESC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "email": row[1],
+                        "created_at": row[2],
+                        "is_pro": bool(row[3]),
+                        "plan": "pro" if row[3] else "free",
+                        "stripe_customer_id": row[4],
+                    }
+                    for row in rows
+                ]
+
+
 async def get_pro_users() -> list[Dict[str, Any]]:
     """Get all Pro users (is_pro=1)."""
     if _USE_POSTGRES:
@@ -520,6 +558,7 @@ async def get_pro_users() -> list[Dict[str, Any]]:
                     "email": row["email"],
                     "created_at": row["created_at"],
                     "is_pro": bool(row["is_pro"]),
+                    "plan": "pro",
                     "stripe_customer_id": row["stripe_customer_id"],
                 }
                 for row in rows
@@ -537,10 +576,110 @@ async def get_pro_users() -> list[Dict[str, Any]]:
                         "email": row[1],
                         "created_at": row[2],
                         "is_pro": bool(row[3]),
+                        "plan": "pro",
                         "stripe_customer_id": row[4],
                     }
                     for row in rows
                 ]
+
+
+async def set_user_plan(user_id: str, plan: str) -> Optional[Dict[str, Any]]:
+    """Set user plan (pro or free). Returns updated user or None if not found."""
+    is_pro = 1 if plan == "pro" else 0
+    
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET is_pro = $1 WHERE id = $2",
+                is_pro, user_id
+            )
+            row = await conn.fetchrow(
+                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE id = $1",
+                user_id
+            )
+            if row:
+                return {
+                    "id": row["id"],
+                    "email": row["email"],
+                    "created_at": row["created_at"],
+                    "is_pro": bool(row["is_pro"]),
+                    "plan": "pro" if row["is_pro"] else "free",
+                    "stripe_customer_id": row["stripe_customer_id"],
+                }
+            return None
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE users SET is_pro = ? WHERE id = ?",
+                (is_pro, user_id)
+            )
+            await db.commit()
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE id = ?",
+                (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "email": row[1],
+                        "created_at": row[2],
+                        "is_pro": bool(row[3]),
+                        "plan": "pro" if row[3] else "free",
+                        "stripe_customer_id": row[4],
+                    }
+                return None
+
+
+async def set_user_plan_by_email(email: str, plan: str) -> Optional[Dict[str, Any]]:
+    """Set user plan by email (pro or free). Returns updated user or None if not found."""
+    email_lower = email.lower()
+    is_pro = 1 if plan == "pro" else 0
+    
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET is_pro = $1 WHERE email = $2",
+                is_pro, email_lower
+            )
+            row = await conn.fetchrow(
+                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE email = $1",
+                email_lower
+            )
+            if row:
+                return {
+                    "id": row["id"],
+                    "email": row["email"],
+                    "created_at": row["created_at"],
+                    "is_pro": bool(row["is_pro"]),
+                    "plan": "pro" if row["is_pro"] else "free",
+                    "stripe_customer_id": row["stripe_customer_id"],
+                }
+            return None
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE users SET is_pro = ? WHERE email = ?",
+                (is_pro, email_lower)
+            )
+            await db.commit()
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE email = ?",
+                (email_lower,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "email": row[1],
+                        "created_at": row[2],
+                        "is_pro": bool(row[3]),
+                        "plan": "pro" if row[3] else "free",
+                        "stripe_customer_id": row[4],
+                    }
+                return None
 
 
 async def create_session(user_id: str, expires_in_seconds: int = 30 * 24 * 60 * 60) -> str:

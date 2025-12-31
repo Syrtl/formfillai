@@ -93,6 +93,10 @@ async function updateAuthUI() {
     const userEmailEl = document.getElementById('user-email');
     const userPill = document.getElementById('user-pill');
     const userDropdown = document.getElementById('user-dropdown');
+    const pricingSection = document.getElementById('pricing');
+    const upgradeBtn = document.getElementById('upgrade-btn');
+    const upgradeForm = document.getElementById('upgrade-form');
+    const proStatusSection = document.getElementById('pro-status-section');
     
     try {
         const response = await fetch('/api/me', { credentials: 'include' });
@@ -103,14 +107,46 @@ async function updateAuthUI() {
                 if (authLoggedOut) authLoggedOut.style.display = 'none';
                 if (authLoggedIn) authLoggedIn.style.display = 'flex';
                 if (userEmailEl) userEmailEl.textContent = data.email || '';
-                if (urlParams.get('debug') === '1') hudLog(`Auth: authenticated as ${data.email}`);
+                
+                // Update plan badge if exists
+                const planBadge = document.getElementById('plan-badge');
+                if (planBadge) {
+                    if (data.is_pro || data.plan === 'pro') {
+                        planBadge.textContent = 'PRO';
+                        planBadge.className = 'plan-badge pro';
+                        planBadge.style.display = 'inline';
+                    } else {
+                        planBadge.style.display = 'none';
+                    }
+                }
+                
+                // Hide pricing section for Pro users
+                const isPro = data.is_pro || data.plan === 'pro';
+                if (isPro) {
+                    if (pricingSection) pricingSection.style.display = 'none';
+                    if (upgradeBtn) upgradeBtn.style.display = 'none';
+                    if (upgradeForm) upgradeForm.style.display = 'none';
+                    if (proStatusSection) proStatusSection.style.display = 'block';
+                } else {
+                    if (pricingSection) pricingSection.style.display = 'block';
+                    if (upgradeBtn) upgradeBtn.style.display = 'block';
+                    if (upgradeForm) upgradeForm.style.display = 'block';
+                    if (proStatusSection) proStatusSection.style.display = 'none';
+                }
+                
+                if (DEBUG) hudLog(`Auth: authenticated as ${data.email}, plan: ${data.plan || 'free'}, is_pro: ${data.is_pro || false}`);
             } else {
                 // Show logged out UI
                 if (authLoggedOut) authLoggedOut.style.display = 'block';
                 if (authLoggedIn) authLoggedIn.style.display = 'none';
                 if (userDropdown) userDropdown.classList.remove('open');
                 if (userPill) userPill.classList.remove('open');
-                if (urlParams.get('debug') === '1') hudLog('Auth: not authenticated');
+                // Show pricing for non-authenticated users
+                if (pricingSection) pricingSection.style.display = 'block';
+                if (upgradeBtn) upgradeBtn.style.display = 'block';
+                if (upgradeForm) upgradeForm.style.display = 'block';
+                if (proStatusSection) proStatusSection.style.display = 'none';
+                if (DEBUG) hudLog('Auth: not authenticated');
             }
         } else {
             // Not authenticated
@@ -118,10 +154,15 @@ async function updateAuthUI() {
             if (authLoggedIn) authLoggedIn.style.display = 'none';
             if (userDropdown) userDropdown.classList.remove('open');
             if (userPill) userPill.classList.remove('open');
-            if (urlParams.get('debug') === '1') hudLog('Auth: not authenticated (error)');
+            // Show pricing for non-authenticated users
+            if (pricingSection) pricingSection.style.display = 'block';
+            if (upgradeBtn) upgradeBtn.style.display = 'block';
+            if (upgradeForm) upgradeForm.style.display = 'block';
+            if (proStatusSection) proStatusSection.style.display = 'none';
+            if (DEBUG) hudLog('Auth: not authenticated (error)');
         }
     } catch (err) {
-        if (urlParams.get('debug') === '1') hudLog(`Auth check error: ${err.message}`);
+        if (DEBUG) hudLog(`Auth check error: ${err.message}`);
     }
 }
 
@@ -325,6 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (DEBUG) hudLog(`POST /auth/logout -> status ${response.status}`);
                 await updateAuthUI();
+                updatePlanStatus();
                 if (typeof showToast === 'function') {
                     showToast('Signed out', 'success');
                 }
@@ -723,6 +765,55 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (DEBUG) hudLog('All handlers attached');
 });
+
+// Update plan status in profiles section
+async function updatePlanStatus() {
+    const planStatusText = document.getElementById('current-plan-text');
+    const planActions = document.getElementById('plan-actions');
+    
+    if (!planStatusText || !planActions) return;
+    
+    try {
+        const response = await fetch('/api/me', { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.authenticated) {
+                const isPro = data.is_pro || data.plan === 'pro';
+                if (isPro) {
+                    planStatusText.innerHTML = '<strong>Current Plan: <span style="color: var(--primary);">Pro ✅</span></strong>';
+                    planActions.innerHTML = '<p style="color: var(--text-muted);">You are subscribed to Pro. Enjoy unlimited fills and no watermarks.</p>';
+                } else {
+                    planStatusText.innerHTML = '<strong>Current Plan: <span>Free</span></strong>';
+                    const upgradeBtn = document.getElementById('upgrade-btn');
+                    if (upgradeBtn) {
+                        planActions.innerHTML = '<button type="button" id="upgrade-from-profiles" class="primary" style="margin-top: 0.5rem;">Upgrade to Pro</button>';
+                        const upgradeFromProfiles = document.getElementById('upgrade-from-profiles');
+                        if (upgradeFromProfiles) {
+                            upgradeFromProfiles.addEventListener('click', () => {
+                                const upgradeForm = document.getElementById('upgrade-form');
+                                if (upgradeForm) {
+                                    upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    // Trigger upgrade form submission
+                                    const upgradeBtnMain = document.getElementById('upgrade-btn');
+                                    if (upgradeBtnMain) {
+                                        upgradeBtnMain.click();
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        planActions.innerHTML = '<p style="color: var(--text-muted);">Upgrade to Pro for unlimited fills and no watermarks.</p>';
+                    }
+                }
+            } else {
+                planStatusText.textContent = 'Please sign in to view your plan.';
+                planActions.innerHTML = '';
+            }
+        }
+    } catch (err) {
+        if (DEBUG) hudLog(`Plan status error: ${err.message}`);
+    }
+}
 
 // Human-friendly field label function
 function prettyLabel(name) {

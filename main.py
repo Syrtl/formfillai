@@ -2916,6 +2916,19 @@ def require_admin_key(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Invalid admin key")
 
 
+@app.get("/admin/users")
+async def get_all_users_json(request: Request) -> JSONResponse:
+    """Get all users (admin-only, requires X-Admin-Key header)."""
+    require_admin_key(request)
+    
+    all_users = await db.get_all_users()
+    return JSONResponse({
+        "ok": True,
+        "count": len(all_users),
+        "users": all_users
+    })
+
+
 @app.get("/admin/pro-users")
 async def get_pro_users_json(request: Request) -> JSONResponse:
     """Get all Pro users (admin-only, requires X-Admin-Key header)."""
@@ -2958,6 +2971,7 @@ async def get_pro_users_page(request: Request) -> HTMLResponse:
                     <th>Email</th>
                     <th>Created At</th>
                     <th>Stripe Customer ID</th>
+                    <th>Is Pro</th>
                 </tr>
             </thead>
             <tbody>
@@ -2971,6 +2985,7 @@ async def get_pro_users_page(request: Request) -> HTMLResponse:
                     <td>{user['email']}</td>
                     <td>{created_at_str}</td>
                     <td>{user.get('stripe_customer_id') or ''}</td>
+                    <td>{'Yes' if user.get('is_pro') else 'No'}</td>
                 </tr>
         """
     
@@ -2982,6 +2997,59 @@ async def get_pro_users_page(request: Request) -> HTMLResponse:
     """
     
     return HTMLResponse(content=html)
+
+
+@app.post("/admin/users/{user_id}/set-plan")
+async def set_user_plan_by_id(user_id: str, request: Request) -> JSONResponse:
+    """Set user plan by user_id (admin-only, requires X-Admin-Key header)."""
+    require_admin_key(request)
+    
+    try:
+        body = await request.json()
+        plan = body.get("plan")
+        if plan not in ["free", "pro"]:
+            raise HTTPException(status_code=400, detail="plan must be 'free' or 'pro'")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    updated_user = await db.set_user_plan(user_id, plan)
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return JSONResponse({
+        "ok": True,
+        "user": updated_user
+    })
+
+
+@app.post("/admin/users/set-plan-by-email")
+async def set_user_plan_by_email_endpoint(request: Request) -> JSONResponse:
+    """Set user plan by email (admin-only, requires X-Admin-Key header)."""
+    require_admin_key(request)
+    
+    try:
+        body = await request.json()
+        email = body.get("email")
+        plan = body.get("plan")
+        if not email:
+            raise HTTPException(status_code=400, detail="email is required")
+        if plan not in ["free", "pro"]:
+            raise HTTPException(status_code=400, detail="plan must be 'free' or 'pro'")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    updated_user = await db.set_user_plan_by_email(email, plan)
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return JSONResponse({
+        "ok": True,
+        "user": updated_user
+    })
 
 
 @app.get("/debug/auth-status")
