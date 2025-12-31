@@ -1,7 +1,7 @@
 // Minimal frontend wiring - Sign In, Magic Link, Analyze PDF
 // HUD (Heads-Up Display) for debugging without DevTools
 
-// Create HUD element
+// Create HUD element (hidden by default, show only with ?debug=1)
 const hud = document.createElement('div');
 hud.id = 'hud';
 hud.style.cssText = `
@@ -20,8 +20,15 @@ hud.style.cssText = `
     overflow-y: auto;
     word-break: break-word;
     pointer-events: none;
+    display: none;
 `;
 document.body.appendChild(hud);
+
+// Show HUD only if ?debug=1
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('debug') === '1') {
+    hud.style.display = 'block';
+}
 
 function hudLog(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -37,8 +44,10 @@ function hudLog(message) {
     console.log('[HUD]', message);
 }
 
-// Show HUD on load
-hudLog('HUD: JS loaded');
+// Show HUD on load (only if debug mode)
+if (urlParams.get('debug') === '1') {
+    hudLog('HUD: JS loaded');
+}
 
 // Capturing click listener to diagnose overlay issues
 document.addEventListener('click', (e) => {
@@ -47,17 +56,74 @@ document.addEventListener('click', (e) => {
     const topEl = document.elementFromPoint(e.clientX, e.clientY);
     const topElInfo = topEl ? `${topEl.tagName}${topEl.id ? '#' + topEl.id : ''}${topEl.className ? '.' + String(topEl.className).trim().replace(/\s+/g, '.') : ''}` : 'none';
     
-    hudLog(`Clicked: ${targetInfo} -> Top: ${topElInfo}`);
-    
-    // If clicks reach document but not the button, there's an overlay
-    if (target !== topEl) {
-        hudLog(`WARNING: Click intercepted! Target: ${targetInfo}, Top: ${topElInfo}`);
+    if (urlParams.get('debug') === '1') {
+        hudLog(`Clicked: ${targetInfo} -> Top: ${topElInfo}`);
+        
+        // If clicks reach document but not the button, there's an overlay
+        if (target !== topEl) {
+            hudLog(`WARNING: Click intercepted! Target: ${targetInfo}, Top: ${topElInfo}`);
+        }
     }
 }, true); // capture phase
 
+// Global state
+let currentFields = [];
+let currentPdfFile = null;
+
+// Auth UI update function
+async function updateAuthUI() {
+    const authLoggedOut = document.getElementById('auth-logged-out');
+    const authLoggedIn = document.getElementById('auth-logged-in');
+    const userEmailEl = document.getElementById('user-email');
+    const logoutBtn = document.getElementById('logout-btn') || document.getElementById('logout-menu-item');
+    
+    try {
+        const response = await fetch('/api/me', { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+                if (data.authenticated) {
+                // Show logged in UI
+                if (authLoggedOut) authLoggedOut.style.display = 'none';
+                if (authLoggedIn) authLoggedIn.style.display = 'flex';
+                if (userEmailEl) userEmailEl.textContent = data.email || '';
+                if (urlParams.get('debug') === '1') hudLog(`Auth: authenticated as ${data.email}`);
+            } else {
+                // Show logged out UI
+                if (authLoggedOut) authLoggedOut.style.display = 'block';
+                if (authLoggedIn) authLoggedIn.style.display = 'none';
+                if (urlParams.get('debug') === '1') hudLog('Auth: not authenticated');
+            }
+        } else {
+            // Not authenticated
+            if (authLoggedOut) authLoggedOut.style.display = 'block';
+            if (authLoggedIn) authLoggedIn.style.display = 'none';
+            if (urlParams.get('debug') === '1') hudLog('Auth: not authenticated (error)');
+        }
+    } catch (err) {
+        if (urlParams.get('debug') === '1') hudLog(`Auth check error: ${err.message}`);
+    }
+}
+
 // Wait for DOM
 document.addEventListener('DOMContentLoaded', () => {
-    hudLog('DOMContentLoaded fired');
+    if (urlParams.get('debug') === '1') {
+        hudLog('DOMContentLoaded fired');
+    }
+    
+    // Check auth on load
+    updateAuthUI();
+    
+    // Handle auth_success=1
+    if (urlParams.get('auth_success') === '1') {
+        updateAuthUI().then(() => {
+            if (typeof showToast === 'function') {
+                showToast('Signed in!', 'success');
+            }
+            // Remove query params
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+        });
+    }
     
     // Get required elements
     const signInBtn = document.getElementById('signInBtn');
@@ -66,30 +132,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendMagicBtn = document.getElementById('sendMagicBtn');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const pdfFileInput = document.getElementById('pdfFileInput');
+    const signInStatus = document.getElementById('sign-in-status');
+    const uploadForm = document.getElementById('upload-form');
     
     // Check for missing elements
-    if (!signInBtn) hudLog('ERROR: Missing element: signInBtn');
-    if (!signInModal) hudLog('ERROR: Missing element: signInModal');
-    if (!signInEmailInput) hudLog('ERROR: Missing element: signInEmail');
-    if (!sendMagicBtn) hudLog('ERROR: Missing element: sendMagicBtn');
-    if (!analyzeBtn) hudLog('ERROR: Missing element: analyzeBtn');
-    if (!pdfFileInput) hudLog('ERROR: Missing element: pdfFileInput');
+    if (urlParams.get('debug') === '1') {
+        if (!signInBtn) hudLog('ERROR: Missing element: signInBtn');
+        if (!signInModal) hudLog('ERROR: Missing element: signInModal');
+        if (!signInEmailInput) hudLog('ERROR: Missing element: signInEmail');
+        if (!sendMagicBtn) hudLog('ERROR: Missing element: sendMagicBtn');
+        if (!analyzeBtn) hudLog('ERROR: Missing element: analyzeBtn');
+        if (!pdfFileInput) hudLog('ERROR: Missing element: pdfFileInput');
+    }
     
     // Sign In button -> open modal (use .active class)
     if (signInBtn && signInModal && signInEmailInput) {
         signInBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            hudLog('Sign In clicked');
+            if (urlParams.get('debug') === '1') hudLog('Sign In clicked');
             try {
                 signInModal.classList.add('active');
                 signInEmailInput.focus();
-                hudLog('Modal opened');
+                if (urlParams.get('debug') === '1') hudLog('Modal opened');
             } catch (err) {
-                hudLog(`ERROR opening modal: ${err.message}`);
+                if (urlParams.get('debug') === '1') hudLog(`ERROR opening modal: ${err.message}`);
             }
         });
-        hudLog('Sign In handler attached');
+        if (urlParams.get('debug') === '1') hudLog('Sign In handler attached');
     }
     
     // Close modal handlers
@@ -97,7 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (closeSignInBtn && signInModal) {
         closeSignInBtn.addEventListener('click', () => {
             signInModal.classList.remove('active');
-            hudLog('Modal closed');
+            if (urlParams.get('debug') === '1') hudLog('Modal closed');
         });
     }
     
@@ -106,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
         signInModal.addEventListener('click', (e) => {
             if (e.target === signInModal) {
                 signInModal.classList.remove('active');
-                hudLog('Modal closed (outside click)');
+                if (urlParams.get('debug') === '1') hudLog('Modal closed (outside click)');
             }
         });
     }
@@ -116,22 +186,25 @@ document.addEventListener('DOMContentLoaded', () => {
         sendMagicBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            hudLog('Send magic link clicked');
+            if (urlParams.get('debug') === '1') hudLog('Send magic link clicked');
             
             const email = signInEmailInput.value.trim();
             if (!email) {
-                hudLog('ERROR: Email empty');
+                if (signInStatus) {
+                    signInStatus.innerHTML = '<div style="color: var(--error); margin-top: 0.5rem;">Please enter an email address.</div>';
+                }
                 return;
             }
             
             sendMagicBtn.disabled = true;
             sendMagicBtn.textContent = 'Sending...';
+            if (signInStatus) signInStatus.innerHTML = '';
             
             try {
                 const formData = new FormData();
                 formData.append('email', email);
                 
-                hudLog(`POST /auth/send-magic-link (email: ${email})`);
+                if (urlParams.get('debug') === '1') hudLog(`POST /auth/send-magic-link (email: ${email})`);
                 const response = await fetch('/auth/send-magic-link', {
                     method: 'POST',
                     body: formData,
@@ -139,22 +212,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 const responseText = await response.text();
-                const responsePreview = responseText.substring(0, 120);
-                hudLog(`POST /auth/send-magic-link -> status ${response.status} + ${responsePreview}`);
+                if (urlParams.get('debug') === '1') {
+                    const responsePreview = responseText.substring(0, 120);
+                    hudLog(`POST /auth/send-magic-link -> status ${response.status} + ${responsePreview}`);
+                }
                 
                 if (response.ok) {
-                    hudLog('Magic link sent successfully');
+                    if (urlParams.get('debug') === '1') hudLog('Magic link sent successfully');
+                    if (signInStatus) {
+                        signInStatus.innerHTML = '<div style="color: var(--success); margin-top: 0.5rem; padding: 0.5rem; background: rgba(22, 163, 74, 0.1); border-radius: 4px;">Magic link sent. Check your email.</div>';
+                    }
                     if (typeof showToast === 'function') {
-                        showToast('Check your email for the magic link', 'success');
+                        showToast('Magic link sent. Check your email.', 'success');
                     }
                 } else {
-                    hudLog(`ERROR: Magic link send failed: ${response.status}`);
+                    let errorMsg = 'Failed to send magic link';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        errorMsg = errorData.detail || errorMsg;
+                    } catch (e) {
+                        errorMsg = responseText.substring(0, 100) || errorMsg;
+                    }
+                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Magic link send failed: ${response.status}`);
+                    if (signInStatus) {
+                        signInStatus.innerHTML = `<div style="color: var(--error); margin-top: 0.5rem; padding: 0.5rem; background: rgba(220, 38, 38, 0.1); border-radius: 4px;">${errorMsg}</div>`;
+                    }
                     if (typeof showToast === 'function') {
-                        showToast('Failed to send magic link', 'error');
+                        showToast(errorMsg, 'error');
                     }
                 }
             } catch (err) {
-                hudLog(`ERROR: ${err.message}`);
+                if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
+                if (signInStatus) {
+                    signInStatus.innerHTML = `<div style="color: var(--error); margin-top: 0.5rem; padding: 0.5rem; background: rgba(220, 38, 38, 0.1); border-radius: 4px;">Failed to send magic link: ${err.message}</div>`;
+                }
                 if (typeof showToast === 'function') {
                     showToast('Failed to send magic link', 'error');
                 }
@@ -163,7 +254,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 sendMagicBtn.textContent = 'Send magic link';
             }
         });
-        hudLog('Send magic link handler attached');
+        if (urlParams.get('debug') === '1') hudLog('Send magic link handler attached');
+    }
+    
+    // Sign out handler
+    const logoutBtn = document.getElementById('logout-btn') || document.getElementById('logout-menu-item');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (urlParams.get('debug') === '1') hudLog('Logout clicked');
+            
+            try {
+                const response = await fetch('/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                if (urlParams.get('debug') === '1') hudLog(`POST /auth/logout -> status ${response.status}`);
+                await updateAuthUI();
+                if (typeof showToast === 'function') {
+                    showToast('Signed out', 'success');
+                }
+            } catch (err) {
+                if (urlParams.get('debug') === '1') hudLog(`Logout error: ${err.message}`);
+                await updateAuthUI(); // Still update UI even on error
+            }
+        });
     }
     
     // Analyze PDF button -> POST /fields
@@ -171,11 +287,11 @@ document.addEventListener('DOMContentLoaded', () => {
         analyzeBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            hudLog('Analyze clicked');
+            if (urlParams.get('debug') === '1') hudLog('Analyze clicked');
             
             const file = pdfFileInput.files[0];
             if (!file) {
-                hudLog('ERROR: No file selected');
+                if (urlParams.get('debug') === '1') hudLog('ERROR: No file selected');
                 if (typeof showToast === 'function') {
                     showToast('Please select a PDF file first', 'error');
                 }
@@ -183,7 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Immediately show feedback
-            hudLog(`POST /fields (file: ${file.name}, size: ${file.size})`);
+            if (urlParams.get('debug') === '1') hudLog(`POST /fields (file: ${file.name}, size: ${file.size})`);
             if (typeof showToast === 'function') {
                 showToast('Uploading...', 'success');
             }
@@ -201,11 +317,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 const responseText = await response.text();
-                const responsePreview = responseText.substring(0, 120);
-                hudLog(`POST /fields -> status ${response.status} + ${responsePreview}`);
+                if (urlParams.get('debug') === '1') {
+                    const responsePreview = responseText.substring(0, 120);
+                    hudLog(`POST /fields -> status ${response.status} + ${responsePreview}`);
+                }
                 
                 if (response.status === 401) {
-                    hudLog('ERROR: Not signed in (401)');
+                    if (urlParams.get('debug') === '1') hudLog('ERROR: Not signed in (401)');
                     if (typeof showToast === 'function') {
                         showToast('Please sign in first', 'error');
                     }
@@ -213,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 if (!response.ok) {
-                    hudLog(`ERROR: Analyze failed: ${response.status}`);
+                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Analyze failed: ${response.status}`);
                     if (typeof showToast === 'function') {
                         showToast('Failed to analyze PDF', 'error');
                     }
@@ -225,13 +343,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     responseData = JSON.parse(responseText);
                 } catch (parseErr) {
-                    hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
+                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
                     return;
                 }
                 
                 const fields = responseData.fields || [];
                 const fieldCount = fields.length;
-                hudLog(`Success: Fields found: ${fieldCount}`);
+                
+                // Store fields globally for Fill submission
+                currentFields = fields;
+                currentPdfFile = file;
+                
+                if (urlParams.get('debug') === '1') hudLog(`Success: Fields found: ${fieldCount}`);
                 
                 if (fieldCount === 0) {
                     if (typeof showToast === 'function') {
@@ -257,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         previewContainer.style.display = 'block';
                         previewContainer.setAttribute('data-has-preview', 'true');
                         previewContainer.classList.add('has-preview');
-                        hudLog(`Preview iframe set: ${previewUrl}`);
+                        if (urlParams.get('debug') === '1') hudLog(`Preview iframe set: ${previewUrl}`);
                         
                         // Fallback link
                         if (previewLink) {
@@ -265,16 +388,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             previewLink.textContent = 'Open preview in new tab';
                         }
                     } else {
-                        hudLog('WARNING: Preview elements not found');
+                        if (urlParams.get('debug') === '1') hudLog('WARNING: Preview elements not found');
                     }
                 }
                 
                 // Render fields
                 renderFields(fields);
-                hudLog('Fields rendered');
+                if (urlParams.get('debug') === '1') hudLog('Fields rendered');
                 
             } catch (err) {
-                hudLog(`ERROR: ${err.message}`);
+                if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
                 if (typeof showToast === 'function') {
                     showToast('Failed to analyze PDF', 'error');
                 }
@@ -283,10 +406,131 @@ document.addEventListener('DOMContentLoaded', () => {
                 analyzeBtn.textContent = 'Analyze PDF';
             }
         });
-        hudLog('Analyze PDF handler attached');
+        if (urlParams.get('debug') === '1') hudLog('Analyze PDF handler attached');
     }
     
-        hudLog('All handlers attached');
+    // Intercept Fill My Form submission
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (urlParams.get('debug') === '1') hudLog('Fill My Form submitted');
+            
+            if (!currentPdfFile) {
+                if (typeof showToast === 'function') {
+                    showToast('Please analyze a PDF first', 'error');
+                }
+                return;
+            }
+            
+            // Collect field values
+            const fieldValues = {};
+            let hasAnyValue = false;
+            
+            currentFields.forEach((field) => {
+                const input = document.getElementById(`field_${field.name}`);
+                if (input) {
+                    let value;
+                    if (input.type === 'checkbox') {
+                        value = input.checked ? 'true' : '';
+                    } else {
+                        value = input.value.trim();
+                    }
+                    if (value) {
+                        fieldValues[field.name] = value;
+                        hasAnyValue = true;
+                    }
+                }
+            });
+            
+            if (!hasAnyValue) {
+                if (typeof showToast === 'function') {
+                    showToast('Please fill at least one field', 'error');
+                }
+                return;
+            }
+            
+            // Build FormData
+            const formData = new FormData();
+            formData.append('pdf_file', currentPdfFile);
+            formData.append('fields_json', JSON.stringify(fieldValues));
+            
+            const submitBtn = document.getElementById('submit-btn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Filling...';
+            }
+            
+            try {
+                if (urlParams.get('debug') === '1') hudLog(`POST /fill with ${Object.keys(fieldValues).length} fields`);
+                const response = await fetch('/fill', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'include'
+                });
+                
+                const responseText = await response.text();
+                if (urlParams.get('debug') === '1') {
+                    const responsePreview = responseText.substring(0, 120);
+                    hudLog(`POST /fill -> status ${response.status} + ${responsePreview}`);
+                }
+                
+                if (!response.ok) {
+                    let errorMsg = 'Failed to fill form';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        errorMsg = errorData.detail || errorMsg;
+                    } catch (e) {
+                        errorMsg = responseText.substring(0, 100) || errorMsg;
+                    }
+                    if (typeof showToast === 'function') {
+                        showToast(errorMsg, 'error');
+                    }
+                    return;
+                }
+                
+                // Success - update preview
+                let responseData;
+                try {
+                    responseData = JSON.parse(responseText);
+                } catch (parseErr) {
+                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
+                    return;
+                }
+                
+                if (responseData.preview_url) {
+                    const previewIframe = document.getElementById('preview-iframe');
+                    const previewContainer = document.getElementById('preview-container');
+                    
+                    if (previewIframe && previewContainer) {
+                        const previewUrl = `${responseData.preview_url}?t=${Date.now()}`;
+                        previewIframe.src = previewUrl;
+                        previewContainer.style.display = 'block';
+                        previewContainer.setAttribute('data-has-preview', 'true');
+                        previewContainer.classList.add('has-preview');
+                        if (urlParams.get('debug') === '1') hudLog(`Preview updated: ${previewUrl}`);
+                    }
+                }
+                
+                if (typeof showToast === 'function') {
+                    showToast('Form filled successfully!', 'success');
+                }
+            } catch (err) {
+                if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
+                if (typeof showToast === 'function') {
+                    showToast('Failed to fill form', 'error');
+                }
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Fill My Form';
+                }
+            }
+        });
+        if (urlParams.get('debug') === '1') hudLog('Fill form handler attached');
+    }
+    
+    if (urlParams.get('debug') === '1') hudLog('All handlers attached');
 });
 
 // Implement renderFields function (single source of truth)
@@ -297,7 +541,7 @@ function renderFields(fields) {
     const submitBtn = document.getElementById('submit-btn');
     
     if (!fieldsContainer || !fieldsList || !fieldsSummary) {
-        hudLog('ERROR: Missing fields container elements');
+        if (urlParams.get('debug') === '1') hudLog('ERROR: Missing fields container elements');
         return;
     }
     
@@ -394,7 +638,7 @@ function renderFields(fields) {
         submitBtn.style.display = 'block';
     }
     
-    hudLog(`Rendered ${fieldCount} fields`);
+    if (urlParams.get('debug') === '1') hudLog(`Rendered ${fieldCount} fields`);
 }
 
 // Expose renderFields globally
