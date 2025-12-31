@@ -945,7 +945,6 @@ async def extract_fields(
                       filename, user_id, e.detail)
         raise
     
-    try:
         pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
@@ -1371,19 +1370,87 @@ async def update_profile(request: Request) -> JSONResponse:
         raise HTTPException(status_code=500, detail="Failed to update profile")
 
 
-@app.post("/billing/portal")
-async def create_billing_portal(request: Request) -> JSONResponse:
-    """Create Stripe billing portal session for the current user."""
-    if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=503, detail="Stripe is not configured")
-    
+@app.post("/api/profile/update-email")
+async def update_email(request: Request) -> JSONResponse:
+    """Update user email with 7-day cooldown limit."""
     user = await get_current_user_async(request)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
+    try:
+        body = await request.json()
+        new_email = body.get("new_email")
+        
+        if not new_email:
+            raise HTTPException(status_code=400, detail="new_email is required")
+        
+        # Validate email format
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, new_email):
+            raise HTTPException(status_code=400, detail="Invalid email format")
+        
+        user_id = user["id"]
+        current_email = user.get("email", "").lower()
+        new_email_lower = new_email.lower().strip()
+        
+        # If email hasn't changed, return success
+        if current_email == new_email_lower:
+            return JSONResponse({"ok": True, "email": new_email_lower})
+        
+        # Check 7-day cooldown
+        email_changed_at = await db.get_user_email_changed_at(user_id)
+        if email_changed_at is not None:
+            now = int(time.time())
+            days_since_change = (now - email_changed_at) / (24 * 60 * 60)
+            if days_since_change < 7:
+                days_remaining = 7 - days_since_change
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Email can only be changed once every 7 days. Please wait {int(days_remaining)} more day(s)."
+                )
+        
+        # Update email
+        success, error_msg = await db.update_user_email(user_id, new_email_lower)
+        if not success:
+            raise HTTPException(status_code=400, detail=error_msg or "Failed to update email")
+        
+        logger.info("Email updated: user_id=%s old_email=%s new_email=%s", user_id, current_email, new_email_lower)
+        
+        # Get updated email_changed_at
+        updated_changed_at = await db.get_user_email_changed_at(user_id)
+        
+        return JSONResponse({
+            "ok": True,
+            "email": new_email_lower,
+            "email_changed_at": updated_changed_at
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Email update error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update email")
+
+
+@app.post("/billing/portal")
+async def create_billing_portal(request: Request) -> JSONResponse:
+    """Create Stripe billing portal session for the current user."""
+    user = await get_current_user_async(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Stripe billing portal is not available. Stripe is not configured."
+        )
+    
     stripe_customer_id = user.get("stripe_customer_id")
     if not stripe_customer_id:
-        raise HTTPException(status_code=400, detail="No Stripe customer ID found. Please upgrade to Pro first.")
+        raise HTTPException(
+            status_code=400,
+            detail="No Stripe customer ID found. Please upgrade to Pro first."
+        )
     
     try:
         # Get PUBLIC_BASE_URL for return URL
@@ -1395,6 +1462,7 @@ async def create_billing_portal(request: Request) -> JSONResponse:
             return_url=f"{public_base_url}/",
         )
         
+        logger.info("Billing portal session created: user_id=%s customer_id=%s", user.get("id"), stripe_customer_id)
         return JSONResponse({"url": portal_session.url})
     except Exception as e:
         logger.error("Billing portal error: %s", e, exc_info=True)

@@ -811,24 +811,39 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (manageSubscriptionBtn) {
                                 manageSubscriptionBtn.addEventListener('click', async () => {
                                     try {
+                                        manageSubscriptionBtn.disabled = true;
+                                        manageSubscriptionBtn.textContent = 'Opening...';
+                                        
                                         const portalResponse = await fetch('/billing/portal', {
                                             method: 'POST',
                                             credentials: 'include'
                                         });
+                                        
                                         if (portalResponse.ok) {
                                             const portalData = await portalResponse.json();
                                             if (portalData.url) {
-                                                window.open(portalData.url, '_blank');
+                                                window.open(portalData.url, '_blank', 'noopener,noreferrer');
+                                                if (typeof showToast === 'function') {
+                                                    showToast('Opened billing portal', 'success');
+                                                }
+                                            } else {
+                                                if (typeof showToast === 'function') {
+                                                    showToast('No portal URL returned', 'error');
+                                                }
                                             }
                                         } else {
+                                            const errorData = await portalResponse.json().catch(() => ({ detail: 'Failed to open billing portal' }));
                                             if (typeof showToast === 'function') {
-                                                showToast('Failed to open billing portal', 'error');
+                                                showToast(errorData.detail || 'Failed to open billing portal', 'error');
                                             }
                                         }
                                     } catch (err) {
                                         if (typeof showToast === 'function') {
                                             showToast('Error opening billing portal', 'error');
                                         }
+                                    } finally {
+                                        manageSubscriptionBtn.disabled = false;
+                                        manageSubscriptionBtn.textContent = 'Manage Subscription';
                                     }
                                 });
                             }

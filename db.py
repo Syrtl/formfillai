@@ -10,7 +10,7 @@ import random
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 logger = logging.getLogger("formfillai.db")
@@ -228,7 +228,8 @@ async def _init_postgres_tables(conn) -> None:
             is_pro INTEGER DEFAULT 0,
             stripe_customer_id TEXT,
             full_name TEXT,
-            phone TEXT
+            phone TEXT,
+            email_changed_at BIGINT
         )
     """)
     
@@ -239,6 +240,10 @@ async def _init_postgres_tables(conn) -> None:
         pass
     try:
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT")
+    except:
+        pass
+    try:
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_changed_at BIGINT")
     except:
         pass
     
@@ -344,9 +349,26 @@ async def _init_sqlite_tables() -> None:
                 email TEXT UNIQUE NOT NULL,
                 created_at INTEGER NOT NULL,
                 is_pro INTEGER DEFAULT 0,
-                stripe_customer_id TEXT
+                stripe_customer_id TEXT,
+                full_name TEXT,
+                phone TEXT,
+                email_changed_at INTEGER
             )
         """)
+        
+        # Add columns if they don't exist (migration)
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
+        except:
+            pass
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        except:
+            pass
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN email_changed_at INTEGER")
+        except:
+            pass
         
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
