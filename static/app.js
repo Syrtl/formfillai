@@ -366,7 +366,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (DEBUG) hudLog(`POST /auth/logout -> status ${response.status}`);
                 await updateAuthUI();
-                updatePlanStatus();
                 if (typeof showToast === 'function') {
                     showToast('Signed out', 'success');
                 }
@@ -727,7 +726,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (DEBUG) hudLog('Fullscreen button handler attached');
     }
     
-    // Profiles menu item
+    // Profiles menu item - robust scroll handler
     const profilesMenuItem = document.getElementById('profiles-menu-item');
     if (profilesMenuItem) {
         profilesMenuItem.addEventListener('click', (e) => {
@@ -735,29 +734,28 @@ document.addEventListener('DOMContentLoaded', () => {
             e.stopPropagation();
             if (DEBUG) hudLog('Profiles menu item clicked');
             
-            // Close dropdown
+            // Close dropdown first
             const userPill = document.getElementById('user-pill');
             const userDropdown = document.getElementById('user-dropdown');
             if (userPill) userPill.classList.remove('open');
             if (userDropdown) userDropdown.classList.remove('open');
             
-            // Try to scroll to profiles section (id="profiles-section" or id="profiles"), fallback to pricing
-            const profilesSection = document.getElementById('profiles-section') || document.getElementById('profiles');
-            if (profilesSection) {
-                profilesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                if (DEBUG) hudLog('Scrolled to profiles section');
-            } else {
-                // Fallback: scroll to pricing section
-                const pricingSection = document.getElementById('pricing') || document.querySelector('.pricing');
-                if (pricingSection) {
-                    pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    if (DEBUG) hudLog('Scrolled to pricing section (profiles fallback)');
-                } else {
-                    if (typeof showToast === 'function') {
-                        showToast('Profiles coming soon', 'info');
-                    }
-                    if (DEBUG) hudLog('Profiles section not found, showing toast');
+            // Try to scroll to profiles section in priority order
+            let targetElement = null;
+            const selectors = ['#profiles-section', '#profiles', '#app-profiles', '#pricing'];
+            
+            for (const selector of selectors) {
+                targetElement = document.querySelector(selector);
+                if (targetElement) {
+                    break;
                 }
+            }
+            
+            if (targetElement) {
+                targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (DEBUG) hudLog(`Scrolled to ${targetElement.id || targetElement.className}`);
+            } else {
+                if (DEBUG) console.warn('Profiles: No target section found (#profiles-section, #profiles, #app-profiles, or #pricing)');
             }
         });
         if (DEBUG) hudLog('Profiles menu item handler attached');
@@ -765,55 +763,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (DEBUG) hudLog('All handlers attached');
 });
-
-// Update plan status in profiles section
-async function updatePlanStatus() {
-    const planStatusText = document.getElementById('current-plan-text');
-    const planActions = document.getElementById('plan-actions');
-    
-    if (!planStatusText || !planActions) return;
-    
-    try {
-        const response = await fetch('/api/me', { credentials: 'include' });
-        if (response.ok) {
-            const data = await response.json();
-            if (data.authenticated) {
-                const isPro = data.is_pro || data.plan === 'pro';
-                if (isPro) {
-                    planStatusText.innerHTML = '<strong>Current Plan: <span style="color: var(--primary);">Pro ✅</span></strong>';
-                    planActions.innerHTML = '<p style="color: var(--text-muted);">You are subscribed to Pro. Enjoy unlimited fills and no watermarks.</p>';
-                } else {
-                    planStatusText.innerHTML = '<strong>Current Plan: <span>Free</span></strong>';
-                    const upgradeBtn = document.getElementById('upgrade-btn');
-                    if (upgradeBtn) {
-                        planActions.innerHTML = '<button type="button" id="upgrade-from-profiles" class="primary" style="margin-top: 0.5rem;">Upgrade to Pro</button>';
-                        const upgradeFromProfiles = document.getElementById('upgrade-from-profiles');
-                        if (upgradeFromProfiles) {
-                            upgradeFromProfiles.addEventListener('click', () => {
-                                const upgradeForm = document.getElementById('upgrade-form');
-                                if (upgradeForm) {
-                                    upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    // Trigger upgrade form submission
-                                    const upgradeBtnMain = document.getElementById('upgrade-btn');
-                                    if (upgradeBtnMain) {
-                                        upgradeBtnMain.click();
-                                    }
-                                }
-                            });
-                        }
-                    } else {
-                        planActions.innerHTML = '<p style="color: var(--text-muted);">Upgrade to Pro for unlimited fills and no watermarks.</p>';
-                    }
-                }
-            } else {
-                planStatusText.textContent = 'Please sign in to view your plan.';
-                planActions.innerHTML = '';
-            }
-        }
-    } catch (err) {
-        if (DEBUG) hudLog(`Plan status error: ${err.message}`);
-    }
-}
 
 // Human-friendly field label function
 function prettyLabel(name) {

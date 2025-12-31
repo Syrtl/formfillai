@@ -1013,7 +1013,7 @@
                         <div class="lang-picker-dropdown" id="lang-picker-dropdown" role="menu" aria-label="Language selection">
                             <div class="lang-picker-search">
                                 <input type="text" id="lang-picker-search" placeholder="Search language..." data-i18n-placeholder="search_language" autocomplete="off" aria-label="Search languages">
-                            </div>
+            </div>
                             <div class="lang-picker-list" id="lang-picker-list" role="listbox"></div>
                         </div>
                     </div>
@@ -1097,8 +1097,8 @@
                     <div class="preview-controls">
                         <button id="fullscreen-btn" type="button" data-i18n="fullscreen" title="Fullscreen">⛶ <span data-i18n="fullscreen">Fullscreen</span></button>
                     </div>
-                    <iframe id="preview-iframe" src="" title="PDF Preview"></iframe>
-                    <div id="preview-fallback" class="preview-fallback" style="display: none;">
+                <iframe id="preview-iframe" src="" title="PDF Preview"></iframe>
+                <div id="preview-fallback" class="preview-fallback" style="display: none;">
                         <p data-i18n="preview_fallback">Your browser may not support inline PDF preview.</p>
                         <p><a id="preview-link" href="" target="_blank" data-i18n="open_preview_new_tab">Open preview in new tab</a></p>
                     </div>
@@ -1119,7 +1119,7 @@
             </div>
         </div>
                 </div>
-                <section class="pricing" id="pricing">
+        <section class="pricing" id="pricing">
             <div class="pricing-tier">
                 <div class="pricing-title">
                     <h2 data-i18n="free">Free</h2>
@@ -1153,16 +1153,12 @@
             <p style="color: var(--text-muted);">Enjoy unlimited PDF fills and no watermarks.</p>
         </section>
         
-        <!-- Profiles Section -->
-        <section id="profiles-section" style="padding: 2rem 0; margin: 2rem 0;">
-            <h2>Manage Your Plan</h2>
-            <div id="plan-status" style="padding: 1rem; background: var(--bg-secondary); border-radius: 8px; margin: 1rem 0;">
-                <p id="current-plan-text">Loading plan status...</p>
-                <div id="plan-actions" style="margin-top: 1rem;"></div>
-            </div>
+        <!-- Profiles Section (minimal, for scroll target) -->
+        <section id="profiles-section" style="padding: 2rem 0; margin: 2rem 0; min-height: 200px;">
+            <!-- Minimal section for Profiles menu item scroll target -->
         </section>
             </div>
-        </main>
+    </main>
     </div>
     <!-- Sign In Modal -->
     <div id="signInModal" class="login-modal">
@@ -2244,14 +2240,14 @@
                 
                 updateDebugPanel('Analyze PDF click fired');
                 
-                const file = pdfFileInput.files[0];
-                if (!file) {
+            const file = pdfFileInput.files[0];
+            if (!file) {
                     const msg = (typeof t === 'function' ? t('errors.select_pdf_first') : null) || 'Please select a PDF file first';
                     setStatus(msg, true);
                     showToast(msg, 'error');
                     updateDebugPanel('Error: No file selected');
-                    return;
-                }
+                return;
+            }
 
                 // Log analyze click with file info
                 console.log('Analyze clicked:', {
@@ -2268,13 +2264,13 @@
                 // Immediately show feedback and disable button
                 setStatus('Uploading...', false);
                 showToast('Uploading...', 'success');
-                analyzeBtn.disabled = true;
+            analyzeBtn.disabled = true;
                 analyzeBtn.textContent = (typeof t === 'function' ? t('analyzing') : null) || 'Analyzing...';
 
-                const formData = new FormData();
-                formData.append('pdf_file', file);
+            const formData = new FormData();
+            formData.append('pdf_file', file);
 
-                try {
+            try {
                     updateAnalyzeDebug('Sending POST /fields...');
                     const response = await fetch('/fields', { 
                         method: 'POST', 
@@ -2292,10 +2288,10 @@
                 
                     // Always log response status and text to console and debug area
                     try {
-                        if (contentType.includes('application/json')) {
+                    if (contentType.includes('application/json')) {
                             responseData = await response.json();
                             responseText = JSON.stringify(responseData);
-                        } else {
+                    } else {
                             responseText = await response.text();
                         }
                         console.log('Analyze PDF response:', response.status, responseText);
@@ -2830,7 +2826,7 @@
                     
                     // Scroll to preview on mobile/tablet
                     if (window.innerWidth < 1024) {
-                        previewContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    previewContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                     setStatus(t('errors.fill_success'), false, true);
                 } else {
