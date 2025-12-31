@@ -802,50 +802,94 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Set plan actions
                     if (profilePlanActions) {
                         if (isPro) {
-                            profilePlanActions.innerHTML = `
-                                <button type="button" id="manage-subscription-btn" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
-                                <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Manage your subscription, payment methods, and billing in the Stripe portal.</p>
-                            `;
+                            const stripeCustomerId = data.stripe_customer_id;
+                            const stripeEnabled = data.stripe_enabled;
                             
-                            const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
-                            if (manageSubscriptionBtn) {
-                                manageSubscriptionBtn.addEventListener('click', async () => {
-                                    try {
-                                        manageSubscriptionBtn.disabled = true;
-                                        manageSubscriptionBtn.textContent = 'Opening...';
+                            if (stripeEnabled && stripeCustomerId) {
+                                // Pro user with Stripe customer - show Manage Subscription
+                                profilePlanActions.innerHTML = `
+                                    <button type="button" id="manage-subscription-btn" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
+                                    <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Manage your subscription, payment methods, and billing in the Stripe portal.</p>
+                                `;
+                                
+                                const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
+                                if (manageSubscriptionBtn) {
+                                    manageSubscriptionBtn.addEventListener('click', async () => {
+                                        if (typeof showToast === 'function') {
+                                            showToast('Opening billing portal…', 'info');
+                                        }
                                         
-                                        const portalResponse = await fetch('/billing/portal', {
-                                            method: 'POST',
-                                            credentials: 'include'
-                                        });
-                                        
-                                        if (portalResponse.ok) {
-                                            const portalData = await portalResponse.json();
-                                            if (portalData.url) {
-                                                window.open(portalData.url, '_blank', 'noopener,noreferrer');
-                                                if (typeof showToast === 'function') {
-                                                    showToast('Opened billing portal', 'success');
+                                        try {
+                                            manageSubscriptionBtn.disabled = true;
+                                            manageSubscriptionBtn.textContent = 'Opening...';
+                                            
+                                            const portalResponse = await fetch('/billing/portal', {
+                                                method: 'POST',
+                                                credentials: 'include'
+                                            });
+                                            
+                                            if (portalResponse.ok) {
+                                                const portalData = await portalResponse.json();
+                                                if (portalData.url) {
+                                                    // Try to open in new tab
+                                                    const newWindow = window.open(portalData.url, '_blank', 'noopener,noreferrer');
+                                                    
+                                                    if (newWindow) {
+                                                        if (typeof showToast === 'function') {
+                                                            showToast('Billing portal opened in a new tab', 'success');
+                                                        }
+                                                        if (DEBUG) hudLog('Billing portal opened in new tab');
+                                                    } else {
+                                                        // Popup blocked, fallback to same window
+                                                        window.location.href = portalData.url;
+                                                        if (typeof showToast === 'function') {
+                                                            showToast('Billing portal opened (popup was blocked)', 'info');
+                                                        }
+                                                        if (DEBUG) hudLog('Billing portal: popup blocked, using window.location');
+                                                    }
+                                                } else {
+                                                    if (typeof showToast === 'function') {
+                                                        showToast('No portal URL returned', 'error');
+                                                    }
                                                 }
                                             } else {
+                                                const errorData = await portalResponse.json().catch(() => ({ detail: 'Failed to open billing portal' }));
                                                 if (typeof showToast === 'function') {
-                                                    showToast('No portal URL returned', 'error');
+                                                    showToast(errorData.detail || 'Failed to open billing portal', 'error');
                                                 }
                                             }
-                                        } else {
-                                            const errorData = await portalResponse.json().catch(() => ({ detail: 'Failed to open billing portal' }));
+                                        } catch (err) {
                                             if (typeof showToast === 'function') {
-                                                showToast(errorData.detail || 'Failed to open billing portal', 'error');
+                                                showToast('Error opening billing portal', 'error');
+                                            }
+                                            if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
+                                        } finally {
+                                            manageSubscriptionBtn.disabled = false;
+                                            manageSubscriptionBtn.textContent = 'Manage Subscription';
+                                        }
+                                    });
+                                }
+                            } else {
+                                // Pro user without Stripe customer - show Connect Billing
+                                profilePlanActions.innerHTML = `
+                                    <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Your account is Pro but not linked to Stripe yet. Contact support or re-upgrade to connect billing.</p>
+                                    <button type="button" id="connect-billing-btn" class="primary" style="width: 100%;">Connect Billing</button>
+                                `;
+                                
+                                const connectBillingBtn = document.getElementById('connect-billing-btn');
+                                if (connectBillingBtn) {
+                                    connectBillingBtn.addEventListener('click', () => {
+                                        profileModal.classList.remove('active');
+                                        const upgradeForm = document.getElementById('upgrade-form');
+                                        if (upgradeForm) {
+                                            upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                            const upgradeBtnMain = document.getElementById('upgrade-btn');
+                                            if (upgradeBtnMain) {
+                                                upgradeBtnMain.click();
                                             }
                                         }
-                                    } catch (err) {
-                                        if (typeof showToast === 'function') {
-                                            showToast('Error opening billing portal', 'error');
-                                        }
-                                    } finally {
-                                        manageSubscriptionBtn.disabled = false;
-                                        manageSubscriptionBtn.textContent = 'Manage Subscription';
-                                    }
-                                });
+                                    });
+                                }
                             }
                         } else {
                             // Check if Stripe is enabled by trying to find upgrade form

@@ -945,6 +945,7 @@ async def extract_fields(
                       filename, user_id, e.detail)
         raise
     
+    try:
         pdf_bytes = await read_upload_file(pdf_file)
         file_size = len(pdf_bytes)
         logger.info("POST /fields: filename=%s size=%d bytes content_type=%s authenticated=%s user_id=%s user_email=%s", 
@@ -1330,13 +1331,18 @@ async def get_me(request: Request) -> JSONResponse:
     logger.info("GET /api/me: authenticated session_present=%s session_prefix=%s session_found=%s user_id=%s email=%s plan=%s backend=%s",
                 session_present, session_prefix, session_found, user.get("id"), user.get("email"), plan, db_backend)
     
+    # Check Stripe configuration
+    stripe_enabled = bool(STRIPE_SECRET_KEY and STRIPE_PRICE_ID)
+    
     return JSONResponse({
         "authenticated": True,
         "email": user["email"],
         "plan": plan,
         "is_pro": is_pro,
         "full_name": user.get("full_name"),
-        "phone": user.get("phone")
+        "phone": user.get("phone"),
+        "stripe_customer_id": user.get("stripe_customer_id"),
+        "stripe_enabled": stripe_enabled
     })
 
 
@@ -1442,14 +1448,14 @@ async def create_billing_portal(request: Request) -> JSONResponse:
     if not STRIPE_SECRET_KEY:
         raise HTTPException(
             status_code=503,
-            detail="Stripe billing portal is not available. Stripe is not configured."
+            detail="Stripe is not configured."
         )
     
     stripe_customer_id = user.get("stripe_customer_id")
     if not stripe_customer_id:
         raise HTTPException(
             status_code=400,
-            detail="No Stripe customer ID found. Please upgrade to Pro first."
+            detail="No Stripe customer found for this account. Please upgrade via checkout first."
         )
     
     try:
