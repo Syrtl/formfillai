@@ -2900,6 +2900,90 @@ async def debug_set_test_cookie(request: Request) -> RedirectResponse:
     return response
 
 
+def require_admin_key(request: Request) -> None:
+    """Require X-Admin-Key header matching ADMIN_API_KEY env var."""
+    admin_key = get_env("ADMIN_API_KEY")
+    if not admin_key:
+        raise HTTPException(status_code=503, detail="Admin API is not configured")
+    
+    # Check header first
+    provided_key = request.headers.get("X-Admin-Key")
+    if not provided_key:
+        # Fallback: check query param (for convenience, but still secure)
+        provided_key = request.query_params.get("key")
+    
+    if not provided_key or provided_key != admin_key:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+
+@app.get("/admin/pro-users")
+async def get_pro_users_json(request: Request) -> JSONResponse:
+    """Get all Pro users (admin-only, requires X-Admin-Key header)."""
+    require_admin_key(request)
+    
+    pro_users = await db.get_pro_users()
+    return JSONResponse({
+        "ok": True,
+        "count": len(pro_users),
+        "users": pro_users
+    })
+
+
+@app.get("/admin/pro-users/page")
+async def get_pro_users_page(request: Request) -> HTMLResponse:
+    """Get Pro users as HTML table (admin-only, requires X-Admin-Key header)."""
+    require_admin_key(request)
+    
+    pro_users = await db.get_pro_users()
+    
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Pro Users</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+        </style>
+    </head>
+    <body>
+        <h1>Pro Users ({count})</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Email</th>
+                    <th>Created At</th>
+                    <th>Stripe Customer ID</th>
+                </tr>
+            </thead>
+            <tbody>
+    """.format(count=len(pro_users))
+    
+    for user in pro_users:
+        created_at_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(user["created_at"])) if user.get("created_at") else "N/A"
+        html += f"""
+                <tr>
+                    <td>{user['id']}</td>
+                    <td>{user['email']}</td>
+                    <td>{created_at_str}</td>
+                    <td>{user.get('stripe_customer_id') or ''}</td>
+                </tr>
+        """
+    
+    html += """
+            </tbody>
+        </table>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=html)
+
+
 @app.get("/debug/auth-status")
 async def debug_auth_status(request: Request) -> JSONResponse:
     """Simplified debug endpoint for authentication status (dev mode only).
