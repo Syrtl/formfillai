@@ -1274,6 +1274,10 @@ async def get_me(request: Request) -> JSONResponse:
             "authenticated": False
         })
     
+    # Log successful authentication lookup
+    logger.info("GET /api/me: authenticated session_present=%s session_prefix=%s session_found=%s user_id=%s email=%s",
+                session_present, session_prefix, session_found, user.get("id"), user.get("email"))
+    
     # Check if user is Pro (from Stripe cookie or database)
     is_pro_cookie = get_pro_entitlement_active(request.cookies.get("ffai_pro")) is not None
     is_pro_db = user.get("is_pro", False)
@@ -2539,21 +2543,14 @@ async def debug_last_magic_link(request: Request, email: Optional[str] = None) -
     # In dev (DEBUG=1), allow without header
     debug_key = get_env("DEBUG_KEY")
     
-    if IS_PRODUCTION:
-        # Production: require DEBUG_KEY env var and matching header
-        if not debug_key:
-            raise HTTPException(status_code=404, detail="Not found")
-        provided_key = request.headers.get("X-Debug-Key", "")
-        if not provided_key or provided_key != debug_key:
-            raise HTTPException(status_code=403, detail="Invalid debug key")
-    else:
-        # Dev mode: allow if DEBUG=1, or if DEBUG_KEY is set and matches
-        if not DEBUG and not debug_key:
-            raise HTTPException(status_code=404, detail="Not found")
-        if debug_key:
-            provided_key = request.headers.get("X-Debug-Key", "")
-            if not provided_key or provided_key != debug_key:
-                raise HTTPException(status_code=403, detail="Invalid debug key")
+    # Require DEBUG_KEY env var (required in production)
+    if not debug_key:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    # Require X-Debug-Key header to match DEBUG_KEY
+    provided_key = request.headers.get("X-Debug-Key", "")
+    if not provided_key or provided_key != debug_key:
+        raise HTTPException(status_code=403, detail="Invalid debug key")
     
     # Email is required
     if not email:
