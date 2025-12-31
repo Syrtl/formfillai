@@ -435,7 +435,7 @@
             z-index: 1000;
             flex-direction: column;
         }
-        .fullscreen-modal.active {
+        .fullscreen-modal:not([hidden]) {
             display: flex;
             pointer-events: auto; /* Active modal can receive clicks */
         }
@@ -837,6 +837,10 @@
             background: #059669;
         }
         /* Permanent CSS fix: hidden overlays do not intercept clicks */
+        [hidden] {
+            display: none !important;
+        }
+        
         .login-modal,
         .fullscreen-modal,
         .modal,
@@ -1004,7 +1008,7 @@
                     </div>
                     <div class="auth-section">
                         <div id="auth-logged-out">
-                            <button type="button" class="auth-btn primary" id="sign-in-btn">Sign in</button>
+                            <button type="button" class="auth-btn primary" id="signInBtn">Sign in</button>
                         </div>
                         <div id="auth-logged-in" style="display: none;">
                             <div class="user-pill" id="user-pill">
@@ -1033,9 +1037,9 @@
             <form id="upload-form" action="/fill" method="post" enctype="multipart/form-data">
                 <div>
                     <label for="pdf_file" data-i18n="fillable_pdf">Fillable PDF</label>
-                    <input type="file" id="pdf_file" name="pdf_file" accept=".pdf,application/pdf" required>
+                    <input type="file" id="pdfFileInput" name="pdf_file" accept=".pdf,application/pdf" required>
                 </div>
-                <button type="button" id="analyze-btn" data-i18n="analyze_pdf">Analyze PDF</button>
+                <button type="button" id="analyzeBtn" data-i18n="analyze_pdf">Analyze PDF</button>
                 
                 <div id="fields-container">
                     <div id="profile-selector-container" class="profile-selector" style="display: none;">
@@ -1135,18 +1139,18 @@
         </main>
     </div>
     <!-- Sign In Modal -->
-    <div id="sign-in-modal" class="login-modal">
+    <div id="signInModal" class="login-modal" hidden>
         <div class="login-modal-content">
             <h3>Sign in</h3>
             <p>Enter your email to receive a magic link</p>
-            <input type="email" id="sign-in-email" placeholder="your@email.com" autocomplete="email">
-            <button type="button" id="send-magic-link-btn" class="primary">Send magic link</button>
-            <button type="button" id="close-sign-in-modal" class="secondary">Cancel</button>
+            <input type="email" id="signInEmail" placeholder="your@email.com" autocomplete="email">
+            <button type="button" id="sendMagicBtn" class="primary">Send magic link</button>
+            <button type="button" id="closeSignInBtn" class="secondary">Cancel</button>
             <div id="sign-in-status"></div>
         </div>
     </div>
     <!-- Fullscreen Modal -->
-    <div id="fullscreen-modal" class="fullscreen-modal">
+    <div id="fullscreen-modal" class="fullscreen-modal" hidden>
         <div class="fullscreen-header">
             <h3 data-i18n="preview">Preview</h3>
             <button id="fullscreen-close-btn" class="fullscreen-close" data-i18n="close">Close (ESC)</button>
