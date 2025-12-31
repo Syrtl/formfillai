@@ -1002,7 +1002,7 @@
     <div class="page-wrapper">
         <header class="site-header">
             <div class="header-inner">
-                <div class="brand">FormFillAI</div>
+                <a href="/" id="homeLogo" style="text-decoration: none; color: inherit;"><div class="brand">FormFillAI</div></a>
                 <div class="header-right">
                     <div class="lang-switcher">
                         <button class="lang-picker-btn" id="lang-picker-btn" aria-label="Select language" aria-haspopup="true" aria-expanded="false">
@@ -1169,6 +1169,46 @@
             <button type="button" id="sendMagicBtn" class="primary">Send magic link</button>
             <button type="button" id="closeSignInBtn" class="secondary">Cancel</button>
             <div id="sign-in-status"></div>
+        </div>
+    </div>
+    
+    <!-- Profile Modal -->
+    <div id="profileModal" class="login-modal">
+        <div class="login-modal-content">
+            <h3>Profile Settings</h3>
+            <div id="profile-status"></div>
+            
+            <!-- Account Info Section -->
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="margin-bottom: 0.75rem;">Account Information</h4>
+                <div style="margin-bottom: 0.75rem;">
+                    <label for="profile-email" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Email</label>
+                    <input type="email" id="profile-email" readonly style="width: 100%; padding: 0.5rem; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div style="margin-bottom: 0.75rem;">
+                    <label for="profile-full-name" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Full Name</label>
+                    <input type="text" id="profile-full-name" placeholder="Enter your full name" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div style="margin-bottom: 0.75rem;">
+                    <label for="profile-phone" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Phone (Optional)</label>
+                    <input type="tel" id="profile-phone" placeholder="Enter your phone number" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <button type="button" id="save-profile-btn" class="primary" style="width: 100%;">Save Changes</button>
+            </div>
+            
+            <!-- Plan Status Section -->
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                <h4 style="margin-bottom: 0.75rem;">Plan Status</h4>
+                <p id="profile-plan-status" style="font-weight: 600; color: var(--primary);">Loading...</p>
+            </div>
+            
+            <!-- Plan Actions Section -->
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="margin-bottom: 0.75rem;">Plan Actions</h4>
+                <div id="profile-plan-actions"></div>
+            </div>
+            
+            <button type="button" id="closeProfileModalBtn" class="secondary" style="width: 100%;">Close</button>
         </div>
     </div>
     <!-- Fullscreen Modal -->

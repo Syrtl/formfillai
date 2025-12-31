@@ -226,9 +226,21 @@ async def _init_postgres_tables(conn) -> None:
             email TEXT UNIQUE NOT NULL,
             created_at BIGINT NOT NULL,
             is_pro INTEGER DEFAULT 0,
-            stripe_customer_id TEXT
+            stripe_customer_id TEXT,
+            full_name TEXT,
+            phone TEXT
         )
     """)
+    
+    # Add columns if they don't exist (migration)
+    try:
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT")
+    except:
+        pass
+    try:
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT")
+    except:
+        pass
     
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
@@ -456,7 +468,7 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE email = ?",
+                "SELECT id, email, created_at, is_pro, stripe_customer_id, full_name, phone FROM users WHERE email = ?",
                 (email_lower,)
             ) as cursor:
                 row = await cursor.fetchone()
@@ -467,6 +479,8 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
                         "created_at": row[2],
                         "is_pro": bool(row[3]),
                         "stripe_customer_id": row[4],
+                        "full_name": row[5] if len(row) > 5 else None,
+                        "phone": row[6] if len(row) > 6 else None,
                     }
                 return None
 
@@ -492,7 +506,7 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE id = ?",
+                "SELECT id, email, created_at, is_pro, stripe_customer_id, full_name, phone FROM users WHERE id = ?",
                 (user_id,)
             ) as cursor:
                 row = await cursor.fetchone()
@@ -503,6 +517,8 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                         "created_at": row[2],
                         "is_pro": bool(row[3]),
                         "stripe_customer_id": row[4],
+                        "full_name": row[5] if len(row) > 5 else None,
+                        "phone": row[6] if len(row) > 6 else None,
                     }
                 return None
 

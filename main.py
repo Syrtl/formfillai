@@ -1335,7 +1335,9 @@ async def get_me(request: Request) -> JSONResponse:
         "authenticated": True,
         "email": user["email"],
         "plan": plan,
-        "is_pro": is_pro
+        "is_pro": is_pro,
+        "full_name": user.get("full_name"),
+        "phone": user.get("phone")
     })
 
 

@@ -726,10 +726,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (DEBUG) hudLog('Fullscreen button handler attached');
     }
     
-    // Profiles menu item - robust scroll handler
+    // Profiles menu item - open modal
     const profilesMenuItem = document.getElementById('profiles-menu-item');
-    if (profilesMenuItem) {
-        profilesMenuItem.addEventListener('click', (e) => {
+    const profileModal = document.getElementById('profileModal');
+    if (profilesMenuItem && profileModal) {
+        profilesMenuItem.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             if (DEBUG) hudLog('Profiles menu item clicked');
@@ -740,25 +741,183 @@ document.addEventListener('DOMContentLoaded', () => {
             if (userPill) userPill.classList.remove('open');
             if (userDropdown) userDropdown.classList.remove('open');
             
-            // Try to scroll to profiles section in priority order
-            let targetElement = null;
-            const selectors = ['#profiles-section', '#profiles', '#app-profiles', '#pricing'];
+            // Open profile modal
+            profileModal.classList.add('active');
             
-            for (const selector of selectors) {
-                targetElement = document.querySelector(selector);
-                if (targetElement) {
-                    break;
-                }
-            }
-            
-            if (targetElement) {
-                targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                if (DEBUG) hudLog(`Scrolled to ${targetElement.id || targetElement.className}`);
-            } else {
-                if (DEBUG) console.warn('Profiles: No target section found (#profiles-section, #profiles, #app-profiles, or #pricing)');
-            }
+            // Load user data
+            await loadProfileData();
         });
         if (DEBUG) hudLog('Profiles menu item handler attached');
+    }
+    
+    // Close profile modal handlers
+    const closeProfileModalBtn = document.getElementById('closeProfileModalBtn');
+    if (closeProfileModalBtn && profileModal) {
+        closeProfileModalBtn.addEventListener('click', () => {
+            profileModal.classList.remove('active');
+        });
+    }
+    
+    // Close profile modal on outside click
+    if (profileModal) {
+        profileModal.addEventListener('click', (e) => {
+            if (e.target === profileModal) {
+                profileModal.classList.remove('active');
+            }
+        });
+    }
+    
+    // Close profile modal on ESC
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && profileModal && profileModal.classList.contains('active')) {
+            profileModal.classList.remove('active');
+        }
+    });
+    
+    // Load profile data function
+    async function loadProfileData() {
+        const profileEmail = document.getElementById('profile-email');
+        const profileFullName = document.getElementById('profile-full-name');
+        const profilePhone = document.getElementById('profile-phone');
+        const profilePlanStatus = document.getElementById('profile-plan-status');
+        const profilePlanActions = document.getElementById('profile-plan-actions');
+        
+        try {
+            const response = await fetch('/api/me', { credentials: 'include' });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.authenticated) {
+                    // Set account info
+                    if (profileEmail) profileEmail.value = data.email || '';
+                    if (profileFullName) profileFullName.value = data.full_name || '';
+                    if (profilePhone) profilePhone.value = data.phone || '';
+                    
+                    // Set plan status
+                    const isPro = data.is_pro || data.plan === 'pro';
+                    if (profilePlanStatus) {
+                        profilePlanStatus.textContent = isPro ? 'Pro' : 'Free';
+                        profilePlanStatus.style.color = isPro ? 'var(--primary)' : 'var(--text)';
+                    }
+                    
+                    // Set plan actions
+                    if (profilePlanActions) {
+                        if (isPro) {
+                            profilePlanActions.innerHTML = `
+                                <button type="button" id="manage-subscription-btn" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
+                                <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Manage your subscription, payment methods, and billing in the Stripe portal.</p>
+                            `;
+                            
+                            const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
+                            if (manageSubscriptionBtn) {
+                                manageSubscriptionBtn.addEventListener('click', async () => {
+                                    try {
+                                        const portalResponse = await fetch('/billing/portal', {
+                                            method: 'POST',
+                                            credentials: 'include'
+                                        });
+                                        if (portalResponse.ok) {
+                                            const portalData = await portalResponse.json();
+                                            if (portalData.url) {
+                                                window.open(portalData.url, '_blank');
+                                            }
+                                        } else {
+                                            if (typeof showToast === 'function') {
+                                                showToast('Failed to open billing portal', 'error');
+                                            }
+                                        }
+                                    } catch (err) {
+                                        if (typeof showToast === 'function') {
+                                            showToast('Error opening billing portal', 'error');
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            // Check if Stripe is enabled by trying to find upgrade form
+                            const upgradeForm = document.getElementById('upgrade-form');
+                            if (upgradeForm) {
+                                profilePlanActions.innerHTML = `
+                                    <button type="button" id="upgrade-to-pro-btn" class="primary" style="width: 100%;">Upgrade to Pro</button>
+                                `;
+                                
+                                const upgradeBtn = document.getElementById('upgrade-to-pro-btn');
+                                if (upgradeBtn) {
+                                    upgradeBtn.addEventListener('click', () => {
+                                        const upgradeForm = document.getElementById('upgrade-form');
+                                        if (upgradeForm) {
+                                            profileModal.classList.remove('active');
+                                            upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                            const upgradeBtnMain = document.getElementById('upgrade-btn');
+                                            if (upgradeBtnMain) {
+                                                upgradeBtnMain.click();
+                                            }
+                                        }
+                                    });
+                                }
+                            } else {
+                                profilePlanActions.innerHTML = '<p style="color: var(--text-muted);">Payments not available.</p>';
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            if (DEBUG) hudLog(`Profile load error: ${err.message}`);
+        }
+    }
+    
+    // Save profile changes
+    const saveProfileBtn = document.getElementById('save-profile-btn');
+    if (saveProfileBtn) {
+        saveProfileBtn.addEventListener('click', async () => {
+            const profileFullName = document.getElementById('profile-full-name');
+            const profilePhone = document.getElementById('profile-phone');
+            const profileStatus = document.getElementById('profile-status');
+            
+            if (!profileFullName || !profilePhone) return;
+            
+            const fullName = profileFullName.value.trim();
+            const phone = profilePhone.value.trim();
+            
+            try {
+                saveProfileBtn.disabled = true;
+                saveProfileBtn.textContent = 'Saving...';
+                
+                const response = await fetch('/api/profile/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ full_name: fullName, phone: phone })
+                });
+                
+                if (response.ok) {
+                    if (profileStatus) {
+                        profileStatus.innerHTML = '<div style="color: var(--success); padding: 0.5rem; background: rgba(22, 163, 74, 0.1); border-radius: 4px; margin-bottom: 1rem;">Profile updated successfully!</div>';
+                    }
+                    if (typeof showToast === 'function') {
+                        showToast('Profile updated successfully', 'success');
+                    }
+                } else {
+                    const errorData = await response.json().catch(() => ({ detail: 'Failed to update profile' }));
+                    if (profileStatus) {
+                        profileStatus.innerHTML = `<div style="color: var(--error); padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 4px; margin-bottom: 1rem;">${errorData.detail || 'Failed to update profile'}</div>`;
+                    }
+                    if (typeof showToast === 'function') {
+                        showToast(errorData.detail || 'Failed to update profile', 'error');
+                    }
+                }
+            } catch (err) {
+                if (profileStatus) {
+                    profileStatus.innerHTML = `<div style="color: var(--error); padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 4px; margin-bottom: 1rem;">Error: ${err.message}</div>`;
+                }
+                if (typeof showToast === 'function') {
+                    showToast('Error updating profile', 'error');
+                }
+            } finally {
+                saveProfileBtn.disabled = false;
+                saveProfileBtn.textContent = 'Save Changes';
+            }
+        });
     }
     
     if (DEBUG) hudLog('All handlers attached');
