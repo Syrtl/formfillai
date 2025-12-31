@@ -724,6 +724,38 @@ async def set_user_plan_by_email(email: str, plan: str) -> Optional[Dict[str, An
                 return None
 
 
+async def update_user_profile(user_id: str, full_name: Optional[str], phone: Optional[str]) -> bool:
+    """Update user profile (full_name, phone). Returns True if update succeeded, False otherwise."""
+    # Normalize: trim strings, allow empty -> store NULL
+    full_name_normalized = full_name.strip() if full_name and full_name.strip() else None
+    phone_normalized = phone.strip() if phone and phone.strip() else None
+    
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE users SET full_name = $1, phone = $2 WHERE id = $3",
+                full_name_normalized, phone_normalized, user_id
+            )
+            # result is a string like "UPDATE 1" or "UPDATE 0"
+            rows_affected = int(result.split()[-1]) if result else 0
+            logger.info("update_user_profile: user_id=%s full_name_len=%s phone_len=%s rows_affected=%s",
+                       user_id, len(full_name_normalized) if full_name_normalized else 0,
+                       len(phone_normalized) if phone_normalized else 0, rows_affected)
+            return rows_affected == 1
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "UPDATE users SET full_name = ?, phone = ? WHERE id = ?",
+                (full_name_normalized, phone_normalized, user_id)
+            )
+            await db.commit()
+            rows_affected = cursor.rowcount
+            logger.info("update_user_profile: user_id=%s full_name_len=%s phone_len=%s rows_affected=%s",
+                       user_id, len(full_name_normalized) if full_name_normalized else 0,
+                       len(phone_normalized) if phone_normalized else 0, rows_affected)
+            return rows_affected == 1
+
+
 async def create_session(user_id: str, expires_in_seconds: int = 30 * 24 * 60 * 60) -> str:
     """Create a session and return session_id."""
     session_id = secrets.token_urlsafe(32)

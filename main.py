@@ -975,10 +975,10 @@ async def extract_fields(
         except Exception as e:
             logger.warning("Failed to save uploaded PDF: upload_id=%s error=%s", upload_id, e)
             upload_id = None  # Continue without preview if save fails
-        
-        try:
-            reader = PdfReader(BytesIO(pdf_bytes))
-            fields_metadata = extract_field_metadata(reader)
+    
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             preview_url_str = f"/preview-upload/{upload_id}" if upload_id else "none"
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s upload_id=%s preview_url=%s",
@@ -1010,14 +1010,14 @@ async def extract_fields(
             
             # Return stable JSON shape that frontend expects
             return JSONResponse(response_data)
-        except HTTPException:
-            raise
-        except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-            raise HTTPException(
+        raise HTTPException(
                 status_code=422,
-                detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
     except HTTPException:
         raise
@@ -1346,6 +1346,28 @@ async def get_me(request: Request) -> JSONResponse:
     })
 
 
+@app.get("/debug/me-profile")
+async def debug_me_profile(request: Request) -> JSONResponse:
+    """Debug endpoint to show profile fields (no secrets)."""
+    user = await get_current_user_async(request)
+    if not user:
+        return JSONResponse({
+            "authenticated": False,
+            "user_id": None,
+            "email": None,
+            "full_name": None,
+            "phone": None
+        })
+    
+    return JSONResponse({
+        "authenticated": True,
+        "user_id": user.get("id"),
+        "email": user.get("email"),
+        "full_name": user.get("full_name"),
+        "phone": user.get("phone")
+    })
+
+
 @app.post("/api/profile/update")
 async def update_profile(request: Request) -> JSONResponse:
     """Update user profile (full_name, phone)."""
@@ -1365,13 +1387,27 @@ async def update_profile(request: Request) -> JSONResponse:
             raise HTTPException(status_code=400, detail="Phone number too long (max 50 characters)")
         
         user_id = user["id"]
-        await db.update_user_profile(user_id, full_name, phone)
+        
+        # Normalize: trim strings, allow empty -> store NULL
+        full_name_normalized = full_name.strip() if full_name and full_name.strip() else None
+        phone_normalized = phone.strip() if phone and phone.strip() else None
+        
+        # Log lengths (not values)
+        logger.info("POST /api/profile/update: user_id=%s full_name_len=%s phone_len=%s",
+                   user_id, len(full_name_normalized) if full_name_normalized else 0,
+                   len(phone_normalized) if phone_normalized else 0)
+        
+        success = await db.update_user_profile(user_id, full_name_normalized, phone_normalized)
+        
+        if not success:
+            logger.error("POST /api/profile/update: rows_affected=0 user_id=%s", user_id)
+            raise HTTPException(status_code=500, detail="Profile update affected 0 rows.")
         
         logger.info("POST /api/profile/update: success user_id=%s", user_id)
         return JSONResponse({
             "ok": True,
-            "full_name": full_name,
-            "phone": phone
+            "full_name": full_name_normalized,
+            "phone": phone_normalized
         })
     except HTTPException:
         raise

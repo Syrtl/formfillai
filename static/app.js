@@ -781,6 +781,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const profilePhone = document.getElementById('profile-phone');
         const profilePlanStatus = document.getElementById('profile-plan-status');
         const profilePlanActions = document.getElementById('profile-plan-actions');
+        const profileStatus = document.getElementById('profile-status');
+        
+        // Wiring check
+        const saveProfileBtn = document.getElementById('save-profile-btn');
+        const wiringCheck = {
+            saveBtn: !!saveProfileBtn,
+            fullNameInput: !!profileFullName,
+            phoneInput: !!profilePhone,
+            statusDiv: !!profileStatus
+        };
+        
+        if (profileStatus) {
+            const wiringMsg = `Wiring: Save btn=${wiringCheck.saveBtn}, Full name=${wiringCheck.fullNameInput}, Phone=${wiringCheck.phoneInput}, Status=${wiringCheck.statusDiv}`;
+            if (DEBUG) hudLog(wiringMsg);
+            if (!wiringCheck.saveBtn || !wiringCheck.fullNameInput || !wiringCheck.phoneInput || !wiringCheck.statusDiv) {
+                setProfileStatusError(`Missing elements: ${JSON.stringify(wiringCheck)}`);
+                return;
+            }
+        }
         
         try {
             const response = await fetch('/api/me', { credentials: 'include' });
@@ -975,9 +994,11 @@ document.addEventListener('DOMContentLoaded', () => {
         saveProfileBtn.addEventListener('click', async () => {
             const profileFullName = document.getElementById('profile-full-name');
             const profilePhone = document.getElementById('profile-phone');
+            const profileStatus = document.getElementById('profile-status');
             
-            if (!profileFullName || !profilePhone) {
-                setProfileStatusError('Missing form fields');
+            // Verify wiring
+            if (!profileFullName || !profilePhone || !profileStatus) {
+                setProfileStatusError('Missing form fields or status div');
                 return;
             }
             
@@ -985,6 +1006,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const phone = profilePhone.value.trim();
             
             clearProfileStatus();
+            
+            // Show sending status
+            if (profileStatus) {
+                profileStatus.innerHTML = `<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">Sending POST /api/profile/update ... (full_name length: ${fullName.length}, phone length: ${phone.length})</div>`;
+            }
             
             try {
                 saveProfileBtn.disabled = true;
@@ -999,18 +1025,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const data = await parseResponse(response);
                 
-                if (response.ok) {
-                    setProfileStatusSuccess('Profile updated successfully!');
-                    if (typeof showToast === 'function') {
-                        showToast('Profile updated successfully', 'success');
+                // Always show HTTP status
+                if (profileStatus) {
+                    const statusMsg = `HTTP ${response.status} ${response.statusText}`;
+                    if (response.ok) {
+                        profileStatus.innerHTML = `<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">${statusMsg}</div>`;
+                    } else {
+                        const errorMsg = data.detail || 'Failed to update profile';
+                        setProfileStatusError(`${statusMsg}: ${errorMsg}`);
+                        if (typeof showToast === 'function') {
+                            showToast(errorMsg, 'error');
+                        }
+                        return;
                     }
-                    // Refresh header by calling /api/me
-                    await updateAuthUI();
-                } else {
-                    const errorMsg = data.detail || 'Failed to update profile';
-                    setProfileStatusError(errorMsg);
-                    if (typeof showToast === 'function') {
-                        showToast(errorMsg, 'error');
+                }
+                
+                if (response.ok) {
+                    // Verify by calling /api/me
+                    try {
+                        const verifyResponse = await fetch('/api/me', { credentials: 'include' });
+                        if (verifyResponse.ok) {
+                            const verifyData = await verifyResponse.json();
+                            if (verifyData.authenticated) {
+                                const savedFullName = verifyData.full_name || '';
+                                const savedPhone = verifyData.phone || '';
+                                
+                                // Compare (normalize empty strings)
+                                const fullNameMatch = (fullName || '') === (savedFullName || '');
+                                const phoneMatch = (phone || '') === (savedPhone || '');
+                                
+                                if (fullNameMatch && phoneMatch) {
+                                    setProfileStatusSuccess('Saved to DB ✅');
+                                    if (typeof showToast === 'function') {
+                                        showToast('Profile updated successfully', 'success');
+                                    }
+                                    // Refresh header
+                                    await updateAuthUI();
+                                } else {
+                                    setProfileStatusError(`Save returned ok but /api/me did not update — backend/db bug. Expected: full_name="${fullName}", phone="${phone}". Got: full_name="${savedFullName}", phone="${savedPhone}"`);
+                                    if (typeof showToast === 'function') {
+                                        showToast('Save succeeded but verification failed', 'error');
+                                    }
+                                }
+                            } else {
+                                setProfileStatusError('Save succeeded but /api/me returned not authenticated');
+                            }
+                        } else {
+                            setProfileStatusError(`Save succeeded but /api/me verification failed: HTTP ${verifyResponse.status}`);
+                        }
+                    } catch (verifyErr) {
+                        setProfileStatusError(`Save succeeded but verification error: ${verifyErr.message}`);
                     }
                 }
             } catch (err) {
@@ -1026,6 +1090,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         if (DEBUG) hudLog('Save profile button handler attached');
+    } else {
+        if (DEBUG) hudLog('WARNING: save-profile-btn not found');
     }
     
     // Save email changes
