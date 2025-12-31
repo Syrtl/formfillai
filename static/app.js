@@ -815,26 +815,31 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
                                 if (manageSubscriptionBtn) {
                                     manageSubscriptionBtn.addEventListener('click', async () => {
+                                        clearProfileStatus();
+                                        
                                         if (typeof showToast === 'function') {
                                             showToast('Opening billing portal…', 'info');
                                         }
                                         
                                         try {
                                             manageSubscriptionBtn.disabled = true;
-                                            manageSubscriptionBtn.textContent = 'Opening...';
+                                            manageSubscriptionBtn.textContent = 'Opening…';
                                             
                                             const portalResponse = await fetch('/billing/portal', {
                                                 method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
                                                 credentials: 'include'
                                             });
                                             
+                                            const portalData = await parseResponse(portalResponse);
+                                            
                                             if (portalResponse.ok) {
-                                                const portalData = await portalResponse.json();
                                                 if (portalData.url) {
                                                     // Try to open in new tab
                                                     const newWindow = window.open(portalData.url, '_blank', 'noopener,noreferrer');
                                                     
                                                     if (newWindow) {
+                                                        setProfileStatusSuccess('Billing portal opened in a new tab.');
                                                         if (typeof showToast === 'function') {
                                                             showToast('Billing portal opened in a new tab', 'success');
                                                         }
@@ -842,23 +847,29 @@ document.addEventListener('DOMContentLoaded', () => {
                                                     } else {
                                                         // Popup blocked, fallback to same window
                                                         window.location.href = portalData.url;
+                                                        setProfileStatusError('Popup blocked, redirecting…');
                                                         if (typeof showToast === 'function') {
-                                                            showToast('Billing portal opened (popup was blocked)', 'info');
+                                                            showToast('Popup blocked, redirecting…', 'info');
                                                         }
                                                         if (DEBUG) hudLog('Billing portal: popup blocked, using window.location');
                                                     }
                                                 } else {
+                                                    const errorMsg = 'No portal URL returned';
+                                                    setProfileStatusError(errorMsg);
                                                     if (typeof showToast === 'function') {
-                                                        showToast('No portal URL returned', 'error');
+                                                        showToast(errorMsg, 'error');
                                                     }
                                                 }
                                             } else {
-                                                const errorData = await portalResponse.json().catch(() => ({ detail: 'Failed to open billing portal' }));
+                                                const errorMsg = portalData.detail || 'Failed to open billing portal';
+                                                setProfileStatusError(errorMsg);
                                                 if (typeof showToast === 'function') {
-                                                    showToast(errorData.detail || 'Failed to open billing portal', 'error');
+                                                    showToast(errorMsg, 'error');
                                                 }
                                             }
                                         } catch (err) {
+                                            const errorMsg = `Error: ${err.message}`;
+                                            setProfileStatusError(errorMsg);
                                             if (typeof showToast === 'function') {
                                                 showToast('Error opening billing portal', 'error');
                                             }
@@ -868,6 +879,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             manageSubscriptionBtn.textContent = 'Manage Subscription';
                                         }
                                     });
+                                    if (DEBUG) hudLog('Manage subscription button handler attached');
                                 }
                             } else {
                                 // Pro user without Stripe customer - show Connect Billing
