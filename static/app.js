@@ -699,21 +699,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (userPill) userPill.classList.remove('open');
             if (userDropdown) userDropdown.classList.remove('open');
             
-            // Try to scroll to profiles section
+            // Try to scroll to profiles section, fallback to pricing
             const profilesSection = document.getElementById('profiles');
             if (profilesSection) {
                 profilesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 if (DEBUG) hudLog('Scrolled to profiles section');
             } else {
-                // Fallback: scroll to pricing section or show toast
-                const pricingSection = document.querySelector('.pricing') || document.querySelector('section');
+                // Fallback: scroll to pricing section
+                const pricingSection = document.getElementById('pricing') || document.querySelector('.pricing');
                 if (pricingSection) {
                     pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    if (DEBUG) hudLog('Scrolled to pricing section (profiles fallback)');
+                } else {
+                    if (typeof showToast === 'function') {
+                        showToast('Profiles coming soon', 'info');
+                    }
+                    if (DEBUG) hudLog('Profiles section not found, showing toast');
                 }
-                if (typeof showToast === 'function') {
-                    showToast('Profiles coming soon', 'info');
-                }
-                if (DEBUG) hudLog('Profiles section not found, showing toast');
             }
         });
         if (DEBUG) hudLog('Profiles menu item handler attached');
