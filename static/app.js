@@ -34,14 +34,14 @@ if (DEBUG) {
 }
 
 // Hide other debug panels if not in debug mode
-if (!DEBUG) {
-    document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {
+    if (!DEBUG) {
         const debugPanel = document.getElementById('debug-panel');
         const analyzeDebug = document.getElementById('analyze-debug');
         if (debugPanel) debugPanel.style.display = 'none';
         if (analyzeDebug) analyzeDebug.style.display = 'none';
-    });
-}
+    }
+});
 
 function hudLog(message) {
     const timestamp = new Date().toLocaleTimeString();
