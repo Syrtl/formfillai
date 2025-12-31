@@ -842,6 +842,7 @@
         }
         .login-modal.active {
             display: flex;
+            pointer-events: auto; /* Active modal can receive clicks */
         }
         .login-modal-content {
             background: var(--surface);
@@ -911,6 +912,34 @@
             color: var(--accent);
             border: 1px solid rgba(37, 99, 235, 0.3);
         }
+        /* Debug panel - always visible in production */
+        #debug-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 300px;
+            max-height: 400px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+            color: #0f0;
+            z-index: 10000;
+            overflow-y: auto;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: block;
+        }
+        #debug-panel-content {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        #debug-panel-content div {
+            line-height: 1.4;
+            word-break: break-word;
+        }
         .dev-link {
             margin-top: 0.75rem;
             padding: 0.75rem;
@@ -958,7 +987,7 @@
                     </div>
                     <div class="auth-section">
                         <div id="auth-logged-out">
-                            <button class="auth-btn primary" id="sign-in-btn">Sign in</button>
+                            <button type="button" class="auth-btn primary" id="sign-in-btn">Sign in</button>
                         </div>
                         <div id="auth-logged-in" style="display: none;">
                             <div class="user-pill" id="user-pill">
@@ -1269,8 +1298,9 @@
         window.updatePageTranslations = updatePageTranslations;
     </script>
     <script>
-        // Safe translation fallback - must be defined before any handlers use it
+        // Safe translation fallback - must be defined at the very top before any handlers use it
         if (typeof window.t !== 'function') {
+            window.t = function(k) { return k; }; // Minimal fallback
             window.t = function(key, vars) {
                 // If vars is provided, interpolate {key} patterns
                 if (vars && typeof vars === 'object') {
@@ -1308,6 +1338,7 @@
         
         // Wrap all main script in DOMContentLoaded to ensure DOM is ready
         document.addEventListener('DOMContentLoaded', function() {
+            updateDebugPanel('DOMContentLoaded fired');
         
         // Global error handler - show errors as toast and banner
         function showErrorBanner(message) {
@@ -1381,7 +1412,7 @@
             env: 'dev'
         };
         
-        // Auth UI elements
+        // Auth UI elements - verify all required elements exist
         const authLoggedOut = document.getElementById('auth-logged-out');
         const authLoggedIn = document.getElementById('auth-logged-in');
         const userEmailEl = document.getElementById('user-email');
@@ -1392,6 +1423,27 @@
         const sendMagicLinkBtn = document.getElementById('send-magic-link-btn');
         const closeSignInModalBtn = document.getElementById('close-sign-in-modal');
         const signInStatus = document.getElementById('sign-in-status');
+        
+        // Verify required elements exist - show visible error if missing
+        const requiredElements = {
+            'sign-in-btn': signInBtn,
+            'sign-in-modal': signInModal,
+            'sign-in-email': signInEmailInput,
+            'send-magic-link-btn': sendMagicLinkBtn,
+            'close-sign-in-modal': closeSignInModalBtn
+        };
+        
+        for (const [id, element] of Object.entries(requiredElements)) {
+            if (!element) {
+                const errorMsg = `UI init error: missing element ${id}`;
+                console.error(errorMsg);
+                updateDebugPanel(`ERROR: ${errorMsg}`);
+                if (typeof showToast === 'function') {
+                    showToast(errorMsg, 'error');
+                }
+                showErrorBanner(errorMsg);
+            }
+        }
         
         // Profile UI elements
         const profileSelectorContainer = document.getElementById('profile-selector-container');
@@ -1627,21 +1679,52 @@
             }
         }
         
-        // Auth event listeners
-        signInBtn?.addEventListener('click', () => {
-            signInModal.classList.add('active');
-            signInEmailInput.focus();
-            signInStatus.innerHTML = '';
-        });
+        // Auth event listeners - attach only if elements exist
+        let signInHandlerAttached = false;
+        if (signInBtn && signInModal && signInEmailInput) {
+            signInBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                updateDebugPanel('Sign In clicked');
+                try {
+                    signInModal.classList.add('active');
+                    signInEmailInput.focus();
+                    if (signInStatus) signInStatus.innerHTML = '';
+                    updateDebugPanel('Modal opened');
+                } catch (err) {
+                    const errorMsg = `Failed to open modal: ${err.message}`;
+                    console.error(errorMsg, err);
+                    updateDebugPanel(`ERROR: ${errorMsg}`);
+                    if (typeof showToast === 'function') {
+                        showToast(errorMsg, 'error');
+                    }
+                }
+            });
+            signInHandlerAttached = true;
+            updateDebugPanel(`Sign In handler attached: ${signInHandlerAttached}`);
+        } else {
+            const errorMsg = 'Cannot attach Sign In handler: missing required elements';
+            console.error(errorMsg);
+            updateDebugPanel(`ERROR: ${errorMsg}`);
+            if (typeof showToast === 'function') {
+                showToast(errorMsg, 'error');
+            }
+        }
         
-        closeSignInModalBtn?.addEventListener('click', () => {
-            signInModal.classList.remove('active');
-            signInStatus.innerHTML = '';
-            signInEmailInput.value = '';
-        });
+        if (closeSignInModalBtn && signInModal && signInEmailInput) {
+            closeSignInModalBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                signInModal.classList.remove('active');
+                if (signInStatus) signInStatus.innerHTML = '';
+                signInEmailInput.value = '';
+                updateDebugPanel('Modal closed');
+            });
+        }
         
         // Close modal on outside click
-        signInModal?.addEventListener('click', (e) => {
+        if (signInModal) {
+            signInModal.addEventListener('click', (e) => {
             if (e.target === signInModal) {
                 signInModal.classList.remove('active');
                 signInStatus.innerHTML = '';
