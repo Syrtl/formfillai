@@ -2177,11 +2177,9 @@ async def verify_magic_link_post(request: Request) -> JSONResponse:
     x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
     host = request.headers.get("host", "unknown")
     
-    # Detect HTTPS: prioritize X-Forwarded-Proto (set by Railway/proxy)
-    # In production, default to secure=True when x-forwarded-proto is missing
-    is_https = (x_forwarded_proto == "https") or (scheme == "https")
-    if IS_PRODUCTION and not x_forwarded_proto and scheme != "https":
-        is_https = True  # Default to secure in production
+    # Secure flag MUST work behind Railway: X-Forwarded-Proto == "https" OR IS_PRODUCTION
+    # In production, default secure=True even if header missing
+    is_https = (x_forwarded_proto == "https") or (scheme == "https") or IS_PRODUCTION
     
     # Get user plan
     user = await db.get_user_by_email(email)
@@ -2216,12 +2214,18 @@ async def verify_magic_link_post(request: Request) -> JSONResponse:
 
 
 @app.get("/auth/verify")
-async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
+async def verify_magic_link(request: Request, token: Optional[str] = None) -> RedirectResponse:
     """Verify magic link token and create session (GET with redirect).
     
     Validates token, marks it as used, creates session, and sets secure cookie.
     Redirects to /?auth_success=1 on success.
+    If token is missing, redirects to /?auth_error=missing_token.
     """
+    # Handle missing token
+    if not token:
+        logger.warning("GET /auth/verify: token missing in query params")
+        return RedirectResponse(url="/?auth_error=missing_token", status_code=303)
+    
     # Log backend consistency
     db_backend = db.get_db_backend_name()
     database_url_set = bool(os.getenv("DATABASE_URL"))
@@ -2242,11 +2246,9 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
     host = request.headers.get("host", "unknown")
     
-    # Detect HTTPS: prioritize X-Forwarded-Proto (set by Railway/proxy)
-    # In production, default to secure=True when x-forwarded-proto is missing
-    is_https = (x_forwarded_proto == "https") or (scheme == "https")
-    if IS_PRODUCTION and not x_forwarded_proto and scheme != "https":
-        is_https = True  # Default to secure in production
+    # Secure flag MUST work behind Railway: X-Forwarded-Proto == "https" OR IS_PRODUCTION
+    # In production, default secure=True even if header missing
+    is_https = (x_forwarded_proto == "https") or (scheme == "https") or IS_PRODUCTION
     
     # Build redirect URL - use relative redirect
     redirect_url = "/?auth_success=1"
@@ -2275,8 +2277,10 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     # Verify Set-Cookie header is actually on the response object we're returning
     set_cookie_header = response.headers.get("set-cookie", "")
     set_cookie_header_present = "session" in str(set_cookie_header)
-    logger.info("GET /auth/verify: set-cookie issued token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s set-cookie_header_present=%s",
-                token_prefix, user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host, redirect_url, set_cookie_header_present)
+    max_age_days = 30
+    max_age_seconds = max_age_days * 24 * 3600
+    logger.info("verify: set-cookie issued name=session secure=%s samesite=lax path=/ max_age=%d token_prefix=%s user_id=%s session_id_prefix=%s scheme=%s x_forwarded_proto=%s host=%s",
+                is_https, max_age_seconds, token_prefix, user_id, session_id_prefix, scheme, x_forwarded_proto, host)
     
     # Double-check: ensure cookie is actually set before returning
     if not set_cookie_header_present:
@@ -2292,8 +2296,13 @@ async def logout(request: Request) -> JSONResponse:
     if session_id:
         await db.delete_session(session_id)
     
+    # Determine secure flag (same logic as /auth/verify)
+    scheme = request.url.scheme
+    x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    is_https = (x_forwarded_proto == "https") or (scheme == "https") or IS_PRODUCTION
+    
     response = JSONResponse({"success": True})
-    response.delete_cookie("session", httponly=True, secure=IS_PRODUCTION, samesite="lax", path="/")
+    response.delete_cookie("session", httponly=True, secure=is_https, samesite="lax", path="/")
     return response
 
 
@@ -2689,17 +2698,11 @@ async def debug_cookies(request: Request) -> JSONResponse:
     session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
     
     return JSONResponse({
-        "request": {
-            "host": host,
-            "scheme": scheme,
-            "x_forwarded_proto": x_forwarded_proto
-        },
-        "cookies": {
-            "names": cookie_names,
-            "count": len(cookie_names),
-            "session_present": bool(session_cookie),
-            "session_prefix": session_prefix  # Only first 8 chars, safe
-        }
+        "host": host,
+        "scheme": scheme,
+        "x_forwarded_proto": x_forwarded_proto,
+        "session_cookie_present": bool(session_cookie),
+        "session_prefix": session_prefix  # Only first 8 chars, safe
     })
 
 

@@ -829,7 +829,6 @@
             background: #059669;
         }
         .login-modal {
-            display: none;
             position: fixed;
             top: 0;
             left: 0;
@@ -840,10 +839,14 @@
             align-items: center;
             justify-content: center;
             pointer-events: none; /* Hidden modal doesn't block clicks */
+            opacity: 0;
+            visibility: hidden;
         }
         .login-modal.active {
             display: flex;
             pointer-events: auto; /* Active modal can receive clicks */
+            opacity: 1;
+            visibility: visible;
         }
         .login-modal-content {
             background: var(--surface);
