@@ -1367,12 +1367,16 @@ async def update_profile(request: Request) -> JSONResponse:
         user_id = user["id"]
         await db.update_user_profile(user_id, full_name, phone)
         
-        logger.info("Profile updated: user_id=%s", user_id)
-        return JSONResponse({"ok": True})
+        logger.info("POST /api/profile/update: success user_id=%s", user_id)
+        return JSONResponse({
+            "ok": True,
+            "full_name": full_name,
+            "phone": phone
+        })
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Profile update error: %s", e, exc_info=True)
+        logger.error("POST /api/profile/update: error user_id=%s error=%s", user.get("id") if user else "unknown", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to update profile")
 
 
@@ -1385,7 +1389,7 @@ async def update_email(request: Request) -> JSONResponse:
     
     try:
         body = await request.json()
-        new_email = body.get("new_email")
+        new_email = body.get("new_email") or body.get("email")  # Support both "new_email" and "email"
         
         if not new_email:
             raise HTTPException(status_code=400, detail="new_email is required")
@@ -1421,7 +1425,7 @@ async def update_email(request: Request) -> JSONResponse:
         if not success:
             raise HTTPException(status_code=400, detail=error_msg or "Failed to update email")
         
-        logger.info("Email updated: user_id=%s old_email=%s new_email=%s", user_id, current_email, new_email_lower)
+        logger.info("POST /api/profile/update-email: success user_id=%s old_email=%s new_email=%s", user_id, current_email, new_email_lower)
         
         # Get updated email_changed_at
         updated_changed_at = await db.get_user_email_changed_at(user_id)
@@ -1431,10 +1435,11 @@ async def update_email(request: Request) -> JSONResponse:
             "email": new_email_lower,
             "email_changed_at": updated_changed_at
         })
-    except HTTPException:
+    except HTTPException as e:
+        logger.warning("POST /api/profile/update-email: failed user_id=%s status=%s detail=%s", user.get("id") if user else "unknown", e.status_code, e.detail)
         raise
     except Exception as e:
-        logger.error("Email update error: %s", e, exc_info=True)
+        logger.error("POST /api/profile/update-email: error user_id=%s error=%s", user.get("id") if user else "unknown", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to update email")
 
 
@@ -1446,6 +1451,7 @@ async def create_billing_portal(request: Request) -> JSONResponse:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     if not STRIPE_SECRET_KEY:
+        logger.warning("POST /billing/portal: Stripe not configured user_id=%s", user.get("id"))
         raise HTTPException(
             status_code=503,
             detail="Stripe is not configured."
@@ -1453,9 +1459,10 @@ async def create_billing_portal(request: Request) -> JSONResponse:
     
     stripe_customer_id = user.get("stripe_customer_id")
     if not stripe_customer_id:
+        logger.warning("POST /billing/portal: no customer_id user_id=%s", user.get("id"))
         raise HTTPException(
             status_code=400,
-            detail="No Stripe customer found for this account. Please upgrade via checkout first."
+            detail="No Stripe customer found for this account. Please upgrade to connect billing."
         )
     
     try:
@@ -1468,10 +1475,13 @@ async def create_billing_portal(request: Request) -> JSONResponse:
             return_url=f"{public_base_url}/",
         )
         
-        logger.info("Billing portal session created: user_id=%s customer_id=%s", user.get("id"), stripe_customer_id)
+        logger.info("POST /billing/portal: success user_id=%s customer_id=%s", user.get("id"), stripe_customer_id)
         return JSONResponse({"url": portal_session.url})
+    except HTTPException as e:
+        logger.warning("POST /billing/portal: failed user_id=%s status=%s detail=%s", user.get("id") if user else "unknown", e.status_code, e.detail)
+        raise
     except Exception as e:
-        logger.error("Billing portal error: %s", e, exc_info=True)
+        logger.error("POST /billing/portal: error user_id=%s error=%s", user.get("id") if user else "unknown", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to create billing portal session")
 
 

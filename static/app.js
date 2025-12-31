@@ -925,22 +925,58 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Save profile changes
+    // Helper functions for profile status
+    function setProfileStatusSuccess(msg) {
+        const profileStatus = document.getElementById('profile-status');
+        if (profileStatus) {
+            profileStatus.innerHTML = `<div style="color: #16a34a; padding: 0.5rem; background: rgba(22, 163, 74, 0.1); border-radius: 4px; margin-bottom: 1rem;">${msg}</div>`;
+        }
+    }
+    
+    function setProfileStatusError(msg) {
+        const profileStatus = document.getElementById('profile-status');
+        if (profileStatus) {
+            profileStatus.innerHTML = `<div style="color: #ef4444; padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 4px; margin-bottom: 1rem;">${msg}</div>`;
+        }
+    }
+    
+    function clearProfileStatus() {
+        const profileStatus = document.getElementById('profile-status');
+        if (profileStatus) {
+            profileStatus.innerHTML = '';
+        }
+    }
+    
+    // Helper to parse response based on content-type
+    async function parseResponse(response) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            return await response.json();
+        } else {
+            return { detail: await response.text() };
+        }
+    }
+    
+    // Save profile changes (full_name + phone)
     const saveProfileBtn = document.getElementById('save-profile-btn');
     if (saveProfileBtn) {
         saveProfileBtn.addEventListener('click', async () => {
             const profileFullName = document.getElementById('profile-full-name');
             const profilePhone = document.getElementById('profile-phone');
-            const profileStatus = document.getElementById('profile-status');
             
-            if (!profileFullName || !profilePhone) return;
+            if (!profileFullName || !profilePhone) {
+                setProfileStatusError('Missing form fields');
+                return;
+            }
             
             const fullName = profileFullName.value.trim();
             const phone = profilePhone.value.trim();
             
+            clearProfileStatus();
+            
             try {
                 saveProfileBtn.disabled = true;
-                saveProfileBtn.textContent = 'Saving...';
+                saveProfileBtn.textContent = 'Saving…';
                 
                 const response = await fetch('/api/profile/update', {
                     method: 'POST',
@@ -949,34 +985,102 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({ full_name: fullName, phone: phone })
                 });
                 
+                const data = await parseResponse(response);
+                
                 if (response.ok) {
-                    if (profileStatus) {
-                        profileStatus.innerHTML = '<div style="color: var(--success); padding: 0.5rem; background: rgba(22, 163, 74, 0.1); border-radius: 4px; margin-bottom: 1rem;">Profile updated successfully!</div>';
-                    }
+                    setProfileStatusSuccess('Profile updated successfully!');
                     if (typeof showToast === 'function') {
                         showToast('Profile updated successfully', 'success');
                     }
+                    // Refresh header by calling /api/me
+                    await updateAuthUI();
                 } else {
-                    const errorData = await response.json().catch(() => ({ detail: 'Failed to update profile' }));
-                    if (profileStatus) {
-                        profileStatus.innerHTML = `<div style="color: var(--error); padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 4px; margin-bottom: 1rem;">${errorData.detail || 'Failed to update profile'}</div>`;
-                    }
+                    const errorMsg = data.detail || 'Failed to update profile';
+                    setProfileStatusError(errorMsg);
                     if (typeof showToast === 'function') {
-                        showToast(errorData.detail || 'Failed to update profile', 'error');
+                        showToast(errorMsg, 'error');
                     }
                 }
             } catch (err) {
-                if (profileStatus) {
-                    profileStatus.innerHTML = `<div style="color: var(--error); padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 4px; margin-bottom: 1rem;">Error: ${err.message}</div>`;
-                }
+                const errorMsg = `Error: ${err.message}`;
+                setProfileStatusError(errorMsg);
                 if (typeof showToast === 'function') {
                     showToast('Error updating profile', 'error');
                 }
+                if (DEBUG) hudLog(`Save profile error: ${err.message}`);
             } finally {
                 saveProfileBtn.disabled = false;
                 saveProfileBtn.textContent = 'Save Changes';
             }
         });
+        if (DEBUG) hudLog('Save profile button handler attached');
+    }
+    
+    // Save email changes
+    const saveEmailBtn = document.getElementById('save-email-btn');
+    if (saveEmailBtn) {
+        saveEmailBtn.addEventListener('click', async () => {
+            const profileEmail = document.getElementById('profile-email');
+            const userEmailEl = document.getElementById('user-email');
+            
+            if (!profileEmail) {
+                setProfileStatusError('Email field not found');
+                return;
+            }
+            
+            const newEmail = profileEmail.value.trim();
+            
+            if (!newEmail) {
+                setProfileStatusError('Email cannot be empty');
+                return;
+            }
+            
+            clearProfileStatus();
+            
+            try {
+                saveEmailBtn.disabled = true;
+                saveEmailBtn.textContent = 'Saving…';
+                
+                const response = await fetch('/api/profile/update-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ new_email: newEmail })
+                });
+                
+                const data = await parseResponse(response);
+                
+                if (response.ok) {
+                    setProfileStatusSuccess('Email updated successfully!');
+                    // Update header email immediately
+                    if (userEmailEl) {
+                        userEmailEl.textContent = data.email || newEmail;
+                    }
+                    if (typeof showToast === 'function') {
+                        showToast('Email updated successfully', 'success');
+                    }
+                    // Refresh auth UI
+                    await updateAuthUI();
+                } else {
+                    const errorMsg = data.detail || 'Failed to update email';
+                    setProfileStatusError(errorMsg);
+                    if (typeof showToast === 'function') {
+                        showToast(errorMsg, 'error');
+                    }
+                }
+            } catch (err) {
+                const errorMsg = `Error: ${err.message}`;
+                setProfileStatusError(errorMsg);
+                if (typeof showToast === 'function') {
+                    showToast('Error updating email', 'error');
+                }
+                if (DEBUG) hudLog(`Save email error: ${err.message}`);
+            } finally {
+                saveEmailBtn.disabled = false;
+                saveEmailBtn.textContent = 'Save Email';
+            }
+        });
+        if (DEBUG) hudLog('Save email button handler attached');
     }
     
     if (DEBUG) hudLog('All handlers attached');
