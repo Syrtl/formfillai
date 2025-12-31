@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             } catch (err) {
-                if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
+                if (DEBUG) hudLog(`ERROR: ${err.message}`);
                 if (signInStatus) {
                     signInStatus.innerHTML = `<div style="color: var(--error); margin-top: 0.5rem; padding: 0.5rem; background: rgba(220, 38, 38, 0.1); border-radius: 4px;">Failed to send magic link: ${err.message}</div>`;
                 }
@@ -384,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 if (!response.ok) {
-                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Analyze failed: ${response.status}`);
+                    if (DEBUG) hudLog(`ERROR: Analyze failed: ${response.status}`);
                     if (typeof showToast === 'function') {
                         showToast('Failed to analyze PDF', 'error');
                     }
@@ -396,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     responseData = JSON.parse(responseText);
                 } catch (parseErr) {
-                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
+                    if (DEBUG) hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
                     return;
                 }
                 
@@ -457,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (DEBUG) hudLog('Fields rendered');
                 
             } catch (err) {
-                if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
+                if (DEBUG) hudLog(`ERROR: ${err.message}`);
                 if (typeof showToast === 'function') {
                     showToast('Failed to analyze PDF', 'error');
                 }
@@ -584,7 +584,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast('Form filled successfully!', 'success');
                 }
             } catch (err) {
-                if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
+                if (DEBUG) hudLog(`ERROR: ${err.message}`);
                 if (typeof showToast === 'function') {
                     showToast('Failed to fill form', 'error');
                 }
