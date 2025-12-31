@@ -1017,7 +1017,7 @@ async def extract_fields(
                           filename, file_size, is_authenticated, user_id, str(exc))
             raise HTTPException(
                 status_code=422,
-            detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
+                detail="Failed to process PDF. Please ensure the file is a valid PDF with form fields."
             )
     except HTTPException:
         raise
@@ -1444,6 +1444,14 @@ async def update_email(request: Request) -> JSONResponse:
         if current_email == new_email_lower:
             return JSONResponse({"ok": True, "email": new_email_lower})
         
+        # Check if email already exists (uniqueness)
+        existing_user = await db.get_user_by_email(new_email_lower)
+        if existing_user and existing_user.get("id") != user_id:
+            raise HTTPException(
+                status_code=409,
+                detail="This email is already in use by another account."
+            )
+        
         # Check 7-day cooldown
         email_changed_at = await db.get_user_email_changed_at(user_id)
         if email_changed_at is not None:
@@ -1453,7 +1461,7 @@ async def update_email(request: Request) -> JSONResponse:
                 days_remaining = 7 - days_since_change
                 raise HTTPException(
                     status_code=429,
-                    detail=f"Email can only be changed once every 7 days. Please wait {int(days_remaining)} more day(s)."
+                    detail=f"Email can only be changed once every 7 days. Try again in {int(days_remaining)} more day(s)."
                 )
         
         # Update email

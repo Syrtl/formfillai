@@ -824,7 +824,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             const stripeCustomerId = data.stripe_customer_id;
                             const stripeEnabled = data.stripe_enabled;
                             
-                            if (stripeEnabled && stripeCustomerId) {
+                            if (!stripeEnabled) {
+                                // Stripe not configured - show disabled button
+                                profilePlanActions.innerHTML = `
+                                    <button type="button" disabled class="secondary" style="width: 100%; margin-bottom: 0.5rem; opacity: 0.6; cursor: not-allowed;">Payments unavailable</button>
+                                    <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Payments are not configured. Portal unavailable.</p>
+                                `;
+                            } else if (stripeCustomerId) {
                                 // Pro user with Stripe customer - show Manage Subscription
                                 profilePlanActions.innerHTML = `
                                     <button type="button" id="manage-subscription-btn" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
@@ -833,8 +839,16 @@ document.addEventListener('DOMContentLoaded', () => {
                                 
                                 const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
                                 if (manageSubscriptionBtn) {
-                                    manageSubscriptionBtn.addEventListener('click', async () => {
+                                    manageSubscriptionBtn.addEventListener('click', async (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        
                                         clearProfileStatus();
+                                        
+                                        const profileStatus = document.getElementById('profile-status');
+                                        if (profileStatus) {
+                                            profileStatus.innerHTML = '<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">Opening billing portal…</div>';
+                                        }
                                         
                                         if (typeof showToast === 'function') {
                                             showToast('Opening billing portal…', 'info');
@@ -851,6 +865,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                             });
                                             
                                             const portalData = await parseResponse(portalResponse);
+                                            
+                                            // Always show HTTP status
+                                            const statusMsg = `HTTP ${portalResponse.status} ${portalResponse.statusText}`;
                                             
                                             if (portalResponse.ok) {
                                                 if (portalData.url) {
@@ -874,21 +891,36 @@ document.addEventListener('DOMContentLoaded', () => {
                                                     }
                                                 } else {
                                                     const errorMsg = 'No portal URL returned';
-                                                    setProfileStatusError(errorMsg);
+                                                    const responsePreview = JSON.stringify(portalData).substring(0, 200);
+                                                    setProfileStatusError(`${statusMsg}: ${errorMsg}<br><small>Response: ${responsePreview}</small>`);
                                                     if (typeof showToast === 'function') {
                                                         showToast(errorMsg, 'error');
                                                     }
                                                 }
                                             } else {
-                                                const errorMsg = portalData.detail || 'Failed to open billing portal';
-                                                setProfileStatusError(errorMsg);
+                                                // Handle specific error cases
+                                                const errorDetail = portalData.detail || 'Failed to open billing portal';
+                                                const responsePreview = JSON.stringify(portalData).substring(0, 200);
+                                                
+                                                if (portalResponse.status === 503) {
+                                                    // Stripe not configured
+                                                    setProfileStatusError(`${statusMsg}: Payments are not configured. Portal unavailable.<br><small>Response: ${responsePreview}</small>`);
+                                                } else if (portalResponse.status === 400) {
+                                                    // No customer ID
+                                                    setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
+                                                } else {
+                                                    // Other errors
+                                                    setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
+                                                }
+                                                
                                                 if (typeof showToast === 'function') {
-                                                    showToast(errorMsg, 'error');
+                                                    showToast(errorDetail, 'error');
                                                 }
                                             }
                                         } catch (err) {
                                             const errorMsg = `Error: ${err.message}`;
-                                            setProfileStatusError(errorMsg);
+                                            const errorPreview = err.toString().substring(0, 200);
+                                            setProfileStatusError(`${errorMsg}<br><small>${errorPreview}</small>`);
                                             if (typeof showToast === 'function') {
                                                 showToast('Error opening billing portal', 'error');
                                             }
@@ -991,7 +1023,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save profile changes (full_name + phone)
     const saveProfileBtn = document.getElementById('save-profile-btn');
     if (saveProfileBtn) {
-        saveProfileBtn.addEventListener('click', async () => {
+        saveProfileBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const profileFullName = document.getElementById('profile-full-name');
             const profilePhone = document.getElementById('profile-phone');
             const profileStatus = document.getElementById('profile-status');
@@ -1031,10 +1065,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (response.ok) {
                         profileStatus.innerHTML = `<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">${statusMsg}</div>`;
                     } else {
-                        const errorMsg = data.detail || 'Failed to update profile';
-                        setProfileStatusError(`${statusMsg}: ${errorMsg}`);
+                        const errorDetail = data.detail || 'Failed to update profile';
+                        const responsePreview = JSON.stringify(data).substring(0, 200);
+                        setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
                         if (typeof showToast === 'function') {
-                            showToast(errorMsg, 'error');
+                            showToast(errorDetail, 'error');
                         }
                         return;
                     }
@@ -1055,7 +1090,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const phoneMatch = (phone || '') === (savedPhone || '');
                                 
                                 if (fullNameMatch && phoneMatch) {
-                                    setProfileStatusSuccess('Saved to DB ✅');
+                                    setProfileStatusSuccess('Saved ✅');
                                     if (typeof showToast === 'function') {
                                         showToast('Profile updated successfully', 'success');
                                     }
@@ -1079,7 +1114,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (err) {
                 const errorMsg = `Error: ${err.message}`;
-                setProfileStatusError(errorMsg);
+                const errorPreview = err.toString().substring(0, 200);
+                setProfileStatusError(`${errorMsg}<br><small>${errorPreview}</small>`);
                 if (typeof showToast === 'function') {
                     showToast('Error updating profile', 'error');
                 }
@@ -1097,7 +1133,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save email changes
     const saveEmailBtn = document.getElementById('save-email-btn');
     if (saveEmailBtn) {
-        saveEmailBtn.addEventListener('click', async () => {
+        saveEmailBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const profileEmail = document.getElementById('profile-email');
             const userEmailEl = document.getElementById('user-email');
             
@@ -1115,6 +1153,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
             clearProfileStatus();
             
+            // Show saving status
+            const profileStatus = document.getElementById('profile-status');
+            if (profileStatus) {
+                profileStatus.innerHTML = '<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">Saving…</div>';
+            }
+            
             try {
                 saveEmailBtn.disabled = true;
                 saveEmailBtn.textContent = 'Saving…';
@@ -1128,8 +1172,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const data = await parseResponse(response);
                 
+                // Always show HTTP status
+                const statusMsg = `HTTP ${response.status} ${response.statusText}`;
+                
                 if (response.ok) {
-                    setProfileStatusSuccess('Email updated successfully!');
+                    setProfileStatusSuccess('Email updated ✅');
                     // Update header email immediately
                     if (userEmailEl) {
                         userEmailEl.textContent = data.email || newEmail;
@@ -1140,15 +1187,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Refresh auth UI
                     await updateAuthUI();
                 } else {
-                    const errorMsg = data.detail || 'Failed to update email';
-                    setProfileStatusError(errorMsg);
+                    const errorDetail = data.detail || 'Failed to update email';
+                    const responsePreview = JSON.stringify(data).substring(0, 200);
+                    
+                    // Handle specific status codes
+                    if (response.status === 429) {
+                        // Cooldown - show exact message with days remaining
+                        setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
+                    } else if (response.status === 409) {
+                        // Email already taken
+                        setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
+                    } else {
+                        // Other errors
+                        setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
+                    }
+                    
                     if (typeof showToast === 'function') {
-                        showToast(errorMsg, 'error');
+                        showToast(errorDetail, 'error');
                     }
                 }
             } catch (err) {
                 const errorMsg = `Error: ${err.message}`;
-                setProfileStatusError(errorMsg);
+                const errorPreview = err.toString().substring(0, 200);
+                setProfileStatusError(`${errorMsg}<br><small>${errorPreview}</small>`);
                 if (typeof showToast === 'function') {
                     showToast('Error updating email', 'error');
                 }
