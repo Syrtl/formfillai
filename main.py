@@ -1341,6 +1341,66 @@ async def get_me(request: Request) -> JSONResponse:
     })
 
 
+@app.post("/api/profile/update")
+async def update_profile(request: Request) -> JSONResponse:
+    """Update user profile (full_name, phone)."""
+    user = await get_current_user_async(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        body = await request.json()
+        full_name = body.get("full_name")
+        phone = body.get("phone")
+        
+        # Validate inputs
+        if full_name is not None and len(full_name) > 200:
+            raise HTTPException(status_code=400, detail="Full name too long (max 200 characters)")
+        if phone is not None and len(phone) > 50:
+            raise HTTPException(status_code=400, detail="Phone number too long (max 50 characters)")
+        
+        user_id = user["id"]
+        await db.update_user_profile(user_id, full_name, phone)
+        
+        logger.info("Profile updated: user_id=%s", user_id)
+        return JSONResponse({"ok": True})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Profile update error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update profile")
+
+
+@app.post("/billing/portal")
+async def create_billing_portal(request: Request) -> JSONResponse:
+    """Create Stripe billing portal session for the current user."""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+    
+    user = await get_current_user_async(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    stripe_customer_id = user.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=400, detail="No Stripe customer ID found. Please upgrade to Pro first.")
+    
+    try:
+        # Get PUBLIC_BASE_URL for return URL
+        public_base_url = get_env("PUBLIC_BASE_URL") or str(request.base_url).rstrip('/')
+        
+        # Create billing portal session
+        portal_session = stripe.billing_portal.Session.create(
+            customer=stripe_customer_id,
+            return_url=f"{public_base_url}/",
+        )
+        
+        return JSONResponse({"url": portal_session.url})
+    except Exception as e:
+        logger.error("Billing portal error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create billing portal session")
+
+
 @app.post("/create-checkout-session")
 async def create_checkout_session(request: Request):
     if not (STRIPE_SECRET_KEY and STRIPE_PRICE_ID):
