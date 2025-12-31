@@ -936,8 +936,9 @@ async def extract_fields(
             reader = PdfReader(BytesIO(pdf_bytes))
             fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
-            logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s upload_id=%s",
-                       filename, file_size, field_count, is_authenticated, user_id, upload_id)
+            preview_url_str = f"/preview-upload/{upload_id}" if upload_id else "none"
+            logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s upload_id=%s preview_url=%s",
+                       filename, file_size, field_count, is_authenticated, user_id, upload_id, preview_url_str)
             
             if field_count == 0:
                 logger.warning("POST /fields: no fields found filename=%s size=%d authenticated=%s user_id=%s",
