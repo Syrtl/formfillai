@@ -1275,10 +1275,6 @@ async def get_me(request: Request) -> JSONResponse:
             "authenticated": False
         })
     
-    # Log successful authentication lookup
-    logger.info("GET /api/me: authenticated session_present=%s session_prefix=%s session_found=%s user_id=%s email=%s",
-                session_present, session_prefix, session_found, user.get("id"), user.get("email"))
-    
     # Check if user is Pro (from Stripe cookie or database)
     is_pro_cookie = get_pro_entitlement_active(request.cookies.get("ffai_pro")) is not None
     is_pro_db = user.get("is_pro", False)
@@ -1287,6 +1283,7 @@ async def get_me(request: Request) -> JSONResponse:
     # Determine plan string
     plan = "pro" if is_pro else "free"
     
+    # Log successful authentication lookup with session lookup result
     logger.info("GET /api/me: authenticated session_present=%s session_prefix=%s session_found=%s user_id=%s email=%s plan=%s backend=%s",
                 session_present, session_prefix, session_found, user.get("id"), user.get("email"), plan, db_backend)
     
