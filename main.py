@@ -2571,6 +2571,10 @@ async def debug_last_magic_link(request: Request, email: Optional[str] = None) -
         now = int(time.time())
         token_valid = await db.check_magic_token_valid(token, now)
         if token_valid:
+            # Log only token prefix (no secrets)
+            token_prefix = token[:6] if len(token) >= 6 else "short"
+            logger.info("GET /debug/last-magic-link: email=%s token_prefix=%s", email, token_prefix)
+            
             # Build magic link URL
             base_url = get_public_base_url(request)
             magic_link = f"{base_url}/auth/verify?token={token}"
