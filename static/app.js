@@ -75,14 +75,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!analyzeBtn) hudLog('ERROR: Missing element: analyzeBtn');
     if (!pdfFileInput) hudLog('ERROR: Missing element: pdfFileInput');
     
-    // Sign In button -> open modal
+    // Sign In button -> open modal (use .active class)
     if (signInBtn && signInModal && signInEmailInput) {
         signInBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             hudLog('Sign In clicked');
             try {
-                signInModal.hidden = false;
+                signInModal.classList.add('active');
                 signInEmailInput.focus();
                 hudLog('Modal opened');
             } catch (err) {
@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeSignInBtn = document.getElementById('closeSignInBtn');
     if (closeSignInBtn && signInModal) {
         closeSignInBtn.addEventListener('click', () => {
-            signInModal.hidden = true;
+            signInModal.classList.remove('active');
             hudLog('Modal closed');
         });
     }
@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (signInModal) {
         signInModal.addEventListener('click', (e) => {
             if (e.target === signInModal) {
-                signInModal.hidden = true;
+                signInModal.classList.remove('active');
                 hudLog('Modal closed (outside click)');
             }
         });
@@ -255,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const previewUrl = `${responseData.preview_url}?t=${Date.now()}`;
                         previewIframe.src = previewUrl;
                         previewContainer.style.display = 'block';
-                        previewContainer.hidden = false;
+                        previewContainer.classList.add('has-preview');
                         hudLog(`Preview iframe set: ${previewUrl}`);
                         
                         // Fallback link
@@ -268,13 +268,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
-                // Render fields if renderFields function exists
-                if (typeof renderFields === 'function') {
-                    renderFields(fields);
-                    hudLog('Fields rendered');
-                } else {
-                    hudLog('WARNING: renderFields function not found');
-                }
+                // Render fields
+                renderFields(fields);
+                hudLog('Fields rendered');
                 
             } catch (err) {
                 hudLog(`ERROR: ${err.message}`);
@@ -289,6 +285,117 @@ document.addEventListener('DOMContentLoaded', () => {
         hudLog('Analyze PDF handler attached');
     }
     
-    hudLog('All handlers attached');
+        hudLog('All handlers attached');
 });
+
+// Implement renderFields function (single source of truth)
+function renderFields(fields) {
+    const fieldsContainer = document.getElementById('fields-container');
+    const fieldsList = document.getElementById('fields-list');
+    const fieldsSummary = document.getElementById('fields-summary');
+    const submitBtn = document.getElementById('submit-btn');
+    
+    if (!fieldsContainer || !fieldsList || !fieldsSummary) {
+        hudLog('ERROR: Missing fields container elements');
+        return;
+    }
+    
+    // Show fields container
+    fieldsContainer.style.display = 'block';
+    
+    // Update summary
+    const fieldCount = fields.length;
+    fieldsSummary.textContent = `Fields found: ${fieldCount}`;
+    
+    // Clear existing fields
+    fieldsList.innerHTML = '';
+    
+    // Render each field
+    fields.forEach((field) => {
+        const fieldName = field.name || '';
+        const fieldLabel = field.label || fieldName;
+        const fieldType = field.type || 'text';
+        const isRequired = field.required || false;
+        const fieldValue = field.value || '';
+        const options = field.options || [];
+        
+        // Create field wrapper
+        const fieldDiv = document.createElement('div');
+        fieldDiv.style.marginBottom = '1rem';
+        
+        // Create label
+        const label = document.createElement('label');
+        label.setAttribute('for', `field_${fieldName}`);
+        label.textContent = fieldLabel + (isRequired ? ' *' : '');
+        label.style.display = 'block';
+        label.style.marginBottom = '0.25rem';
+        label.style.fontWeight = '600';
+        fieldDiv.appendChild(label);
+        
+        // Create input based on type
+        let input;
+        if (fieldType === 'checkbox') {
+            input = document.createElement('input');
+            input.type = 'checkbox';
+            input.id = `field_${fieldName}`;
+            input.name = fieldName;
+            if (fieldValue === 'true' || fieldValue === true) {
+                input.checked = true;
+            }
+        } else if (fieldType === 'choice' && options.length > 0) {
+            input = document.createElement('select');
+            input.id = `field_${fieldName}`;
+            input.name = fieldName;
+            input.style.width = '100%';
+            input.style.padding = '0.5rem';
+            input.style.border = '1px solid var(--border)';
+            input.style.borderRadius = '6px';
+            
+            // Add empty option
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = '-- Select --';
+            input.appendChild(emptyOption);
+            
+            // Add options
+            options.forEach((option) => {
+                const optionEl = document.createElement('option');
+                optionEl.value = option;
+                optionEl.textContent = option;
+                if (fieldValue === option) {
+                    optionEl.selected = true;
+                }
+                input.appendChild(optionEl);
+            });
+        } else {
+            // Text input
+            input = document.createElement('input');
+            input.type = 'text';
+            input.id = `field_${fieldName}`;
+            input.name = fieldName;
+            input.value = fieldValue;
+            input.style.width = '100%';
+            input.style.padding = '0.5rem';
+            input.style.border = '1px solid var(--border)';
+            input.style.borderRadius = '6px';
+        }
+        
+        if (isRequired) {
+            input.required = true;
+        }
+        
+        fieldDiv.appendChild(input);
+        fieldsList.appendChild(fieldDiv);
+    });
+    
+    // Show submit button
+    if (submitBtn) {
+        submitBtn.style.display = 'block';
+    }
+    
+    hudLog(`Rendered ${fieldCount} fields`);
+}
+
+// Expose renderFields globally
+window.renderFields = renderFields;
 
