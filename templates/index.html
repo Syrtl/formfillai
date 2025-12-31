@@ -386,16 +386,27 @@
             z-index: 10;
         }
         .preview-controls button {
-            background: rgba(255, 255, 255, 0.95);
-            color: var(--text);
-            border: 1px solid #cbd5e1;
+            background: rgba(15, 23, 42, 0.9);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             padding: 0.5rem 0.75rem;
             border-radius: 6px;
             font-size: 0.875rem;
             font-weight: 600;
             cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            transition: background 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            transition: background 0.2s, transform 0.1s;
+        }
+        .preview-controls button:hover {
+            background: rgba(15, 23, 42, 1);
+            transform: scale(1.05);
+        }
+        .preview-controls button:active {
+            transform: scale(0.98);
+        }
+        .preview-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         .preview-controls button:hover {
             background: #ffffff;
@@ -1070,7 +1081,7 @@
                 <div id="analyze-debug-status"></div>
             </div>
             <!-- Visible Debug Panel (not DevTools) -->
-            <div id="debug-panel" style="position: fixed; bottom: 20px; right: 20px; background: #1a1a1a; color: #0f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; max-width: 400px; max-height: 300px; overflow-y: auto; z-index: 10000; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <div id="debug-panel" style="position: fixed; bottom: 20px; right: 20px; background: #1a1a1a; color: #0f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; max-width: 400px; max-height: 300px; overflow-y: auto; z-index: 10000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px;">
                     <strong style="color: #0f0;">Debug Panel</strong>
                     <button id="debug-panel-close" style="background: #333; color: #0f0; border: 1px solid #555; padding: 2px 8px; cursor: pointer; border-radius: 3px;">×</button>

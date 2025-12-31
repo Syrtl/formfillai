@@ -1600,6 +1600,28 @@ async def download_pdf(file_id: str) -> FileResponse:
     return response
 
 
+@app.get("/download-upload/{upload_id}")
+async def download_upload_pdf(upload_id: str) -> FileResponse:
+    """Return uploaded PDF with download disposition."""
+    ensure_tmp_dir()
+    upload_path = UPLOAD_DIR / f"{upload_id}.pdf"
+    
+    if not upload_path.exists():
+        logger.warning("Download requested for non-existent upload: upload_id=%s", upload_id)
+        raise HTTPException(status_code=404, detail="Upload not found or expired.")
+    
+    file_size = upload_path.stat().st_size
+    logger.info("Serving upload download: upload_id=%s, size=%d bytes", upload_id, file_size)
+    
+    response = FileResponse(
+        path=upload_path,
+        media_type="application/pdf",
+        filename="uploaded.pdf",
+    )
+    response.headers["Content-Disposition"] = 'attachment; filename="uploaded.pdf"'
+    return response
+
+
 @app.post("/ai-fix")
 async def ai_fix_pdf(
     file_id: str = Form(...),

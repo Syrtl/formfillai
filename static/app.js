@@ -26,8 +26,21 @@ document.body.appendChild(hud);
 
 // Show HUD only if ?debug=1
 const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get('debug') === '1') {
+const DEBUG = urlParams.get('debug') === '1';
+if (DEBUG) {
     hud.style.display = 'block';
+} else {
+    hud.style.display = 'none';
+}
+
+// Hide other debug panels if not in debug mode
+if (!DEBUG) {
+    document.addEventListener('DOMContentLoaded', () => {
+        const debugPanel = document.getElementById('debug-panel');
+        const analyzeDebug = document.getElementById('analyze-debug');
+        if (debugPanel) debugPanel.style.display = 'none';
+        if (analyzeDebug) analyzeDebug.style.display = 'none';
+    });
 }
 
 function hudLog(message) {
@@ -45,7 +58,7 @@ function hudLog(message) {
 }
 
 // Show HUD on load (only if debug mode)
-if (urlParams.get('debug') === '1') {
+if (DEBUG) {
     hudLog('HUD: JS loaded');
 }
 
@@ -56,7 +69,7 @@ document.addEventListener('click', (e) => {
     const topEl = document.elementFromPoint(e.clientX, e.clientY);
     const topElInfo = topEl ? `${topEl.tagName}${topEl.id ? '#' + topEl.id : ''}${topEl.className ? '.' + String(topEl.className).trim().replace(/\s+/g, '.') : ''}` : 'none';
     
-    if (urlParams.get('debug') === '1') {
+    if (DEBUG) {
         hudLog(`Clicked: ${targetInfo} -> Top: ${topElInfo}`);
         
         // If clicks reach document but not the button, there's an overlay
@@ -69,19 +82,23 @@ document.addEventListener('click', (e) => {
 // Global state
 let currentFields = [];
 let currentPdfFile = null;
+let currentPreviewUrl = null;
+let currentDownloadUrl = null;
+let currentUploadId = null;
 
 // Auth UI update function
 async function updateAuthUI() {
     const authLoggedOut = document.getElementById('auth-logged-out');
     const authLoggedIn = document.getElementById('auth-logged-in');
     const userEmailEl = document.getElementById('user-email');
-    const logoutBtn = document.getElementById('logout-btn') || document.getElementById('logout-menu-item');
+    const userPill = document.getElementById('user-pill');
+    const userDropdown = document.getElementById('user-dropdown');
     
     try {
         const response = await fetch('/api/me', { credentials: 'include' });
         if (response.ok) {
             const data = await response.json();
-                if (data.authenticated) {
+            if (data.authenticated) {
                 // Show logged in UI
                 if (authLoggedOut) authLoggedOut.style.display = 'none';
                 if (authLoggedIn) authLoggedIn.style.display = 'flex';
@@ -91,12 +108,16 @@ async function updateAuthUI() {
                 // Show logged out UI
                 if (authLoggedOut) authLoggedOut.style.display = 'block';
                 if (authLoggedIn) authLoggedIn.style.display = 'none';
+                if (userDropdown) userDropdown.classList.remove('open');
+                if (userPill) userPill.classList.remove('open');
                 if (urlParams.get('debug') === '1') hudLog('Auth: not authenticated');
             }
         } else {
             // Not authenticated
             if (authLoggedOut) authLoggedOut.style.display = 'block';
             if (authLoggedIn) authLoggedIn.style.display = 'none';
+            if (userDropdown) userDropdown.classList.remove('open');
+            if (userPill) userPill.classList.remove('open');
             if (urlParams.get('debug') === '1') hudLog('Auth: not authenticated (error)');
         }
     } catch (err) {
@@ -106,7 +127,7 @@ async function updateAuthUI() {
 
 // Wait for DOM
 document.addEventListener('DOMContentLoaded', () => {
-    if (urlParams.get('debug') === '1') {
+    if (DEBUG) {
         hudLog('DOMContentLoaded fired');
     }
     
@@ -136,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadForm = document.getElementById('upload-form');
     
     // Check for missing elements
-    if (urlParams.get('debug') === '1') {
+    if (DEBUG) {
         if (!signInBtn) hudLog('ERROR: Missing element: signInBtn');
         if (!signInModal) hudLog('ERROR: Missing element: signInModal');
         if (!signInEmailInput) hudLog('ERROR: Missing element: signInEmail');
@@ -150,16 +171,16 @@ document.addEventListener('DOMContentLoaded', () => {
         signInBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (urlParams.get('debug') === '1') hudLog('Sign In clicked');
+            if (DEBUG) hudLog('Sign In clicked');
             try {
                 signInModal.classList.add('active');
                 signInEmailInput.focus();
-                if (urlParams.get('debug') === '1') hudLog('Modal opened');
+                if (DEBUG) hudLog('Modal opened');
             } catch (err) {
-                if (urlParams.get('debug') === '1') hudLog(`ERROR opening modal: ${err.message}`);
+                if (DEBUG) hudLog(`ERROR opening modal: ${err.message}`);
             }
         });
-        if (urlParams.get('debug') === '1') hudLog('Sign In handler attached');
+        if (DEBUG) hudLog('Sign In handler attached');
     }
     
     // Close modal handlers
@@ -167,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (closeSignInBtn && signInModal) {
         closeSignInBtn.addEventListener('click', () => {
             signInModal.classList.remove('active');
-            if (urlParams.get('debug') === '1') hudLog('Modal closed');
+            if (DEBUG) hudLog('Modal closed');
         });
     }
     
@@ -176,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
         signInModal.addEventListener('click', (e) => {
             if (e.target === signInModal) {
                 signInModal.classList.remove('active');
-                if (urlParams.get('debug') === '1') hudLog('Modal closed (outside click)');
+                if (DEBUG) hudLog('Modal closed (outside click)');
             }
         });
     }
@@ -186,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sendMagicBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (urlParams.get('debug') === '1') hudLog('Send magic link clicked');
+            if (DEBUG) hudLog('Send magic link clicked');
             
             const email = signInEmailInput.value.trim();
             if (!email) {
@@ -204,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const formData = new FormData();
                 formData.append('email', email);
                 
-                if (urlParams.get('debug') === '1') hudLog(`POST /auth/send-magic-link (email: ${email})`);
+                if (DEBUG) hudLog(`POST /auth/send-magic-link (email: ${email})`);
                 const response = await fetch('/auth/send-magic-link', {
                     method: 'POST',
                     body: formData,
@@ -212,15 +233,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 const responseText = await response.text();
-                if (urlParams.get('debug') === '1') {
+                if (DEBUG) {
                     const responsePreview = responseText.substring(0, 120);
                     hudLog(`POST /auth/send-magic-link -> status ${response.status} + ${responsePreview}`);
                 }
                 
                 if (response.ok) {
-                    if (urlParams.get('debug') === '1') hudLog('Magic link sent successfully');
+                    if (DEBUG) hudLog('Magic link sent successfully');
                     if (signInStatus) {
-                        signInStatus.innerHTML = '<div style="color: var(--success); margin-top: 0.5rem; padding: 0.5rem; background: rgba(22, 163, 74, 0.1); border-radius: 4px;">Magic link sent. Check your email.</div>';
+                        signInStatus.innerHTML = '<div style="color: #16a34a; margin-top: 0.5rem; padding: 0.75rem; background: rgba(22, 163, 74, 0.15); border: 1px solid rgba(22, 163, 74, 0.3); border-radius: 6px; font-weight: 500;">Magic link sent. Check your email.</div>';
                     }
                     if (typeof showToast === 'function') {
                         showToast('Magic link sent. Check your email.', 'success');
@@ -233,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     } catch (e) {
                         errorMsg = responseText.substring(0, 100) || errorMsg;
                     }
-                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Magic link send failed: ${response.status}`);
+                    if (DEBUG) hudLog(`ERROR: Magic link send failed: ${response.status}`);
                     if (signInStatus) {
                         signInStatus.innerHTML = `<div style="color: var(--error); margin-top: 0.5rem; padding: 0.5rem; background: rgba(220, 38, 38, 0.1); border-radius: 4px;">${errorMsg}</div>`;
                     }
@@ -254,7 +275,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 sendMagicBtn.textContent = 'Send magic link';
             }
         });
-        if (urlParams.get('debug') === '1') hudLog('Send magic link handler attached');
+        if (DEBUG) hudLog('Send magic link handler attached');
+    }
+    
+    // User menu dropdown toggle
+    const userPill = document.getElementById('user-pill');
+    const userDropdown = document.getElementById('user-dropdown');
+    if (userPill && userDropdown) {
+        userPill.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            userPill.classList.toggle('open');
+            userDropdown.classList.toggle('open');
+        });
+        
+        // Close dropdown on outside click
+        document.addEventListener('click', (e) => {
+            if (userPill && userDropdown && !userPill.contains(e.target) && !userDropdown.contains(e.target)) {
+                userPill.classList.remove('open');
+                userDropdown.classList.remove('open');
+            }
+        });
+        
+        // Close dropdown on ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && userDropdown && userDropdown.classList.contains('open')) {
+                userPill.classList.remove('open');
+                userDropdown.classList.remove('open');
+            }
+        });
     }
     
     // Sign out handler
@@ -263,20 +312,24 @@ document.addEventListener('DOMContentLoaded', () => {
         logoutBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (urlParams.get('debug') === '1') hudLog('Logout clicked');
+            if (DEBUG) hudLog('Logout clicked');
+            
+            // Close dropdown
+            if (userPill) userPill.classList.remove('open');
+            if (userDropdown) userDropdown.classList.remove('open');
             
             try {
                 const response = await fetch('/auth/logout', {
                     method: 'POST',
                     credentials: 'include'
                 });
-                if (urlParams.get('debug') === '1') hudLog(`POST /auth/logout -> status ${response.status}`);
+                if (DEBUG) hudLog(`POST /auth/logout -> status ${response.status}`);
                 await updateAuthUI();
                 if (typeof showToast === 'function') {
                     showToast('Signed out', 'success');
                 }
             } catch (err) {
-                if (urlParams.get('debug') === '1') hudLog(`Logout error: ${err.message}`);
+                if (DEBUG) hudLog(`Logout error: ${err.message}`);
                 await updateAuthUI(); // Still update UI even on error
             }
         });
@@ -287,11 +340,11 @@ document.addEventListener('DOMContentLoaded', () => {
         analyzeBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (urlParams.get('debug') === '1') hudLog('Analyze clicked');
+            if (DEBUG) hudLog('Analyze clicked');
             
             const file = pdfFileInput.files[0];
             if (!file) {
-                if (urlParams.get('debug') === '1') hudLog('ERROR: No file selected');
+                if (DEBUG) hudLog('ERROR: No file selected');
                 if (typeof showToast === 'function') {
                     showToast('Please select a PDF file first', 'error');
                 }
@@ -299,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Immediately show feedback
-            if (urlParams.get('debug') === '1') hudLog(`POST /fields (file: ${file.name}, size: ${file.size})`);
+            if (DEBUG) hudLog(`POST /fields (file: ${file.name}, size: ${file.size})`);
             if (typeof showToast === 'function') {
                 showToast('Uploading...', 'success');
             }
@@ -317,13 +370,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 const responseText = await response.text();
-                if (urlParams.get('debug') === '1') {
+                if (DEBUG) {
                     const responsePreview = responseText.substring(0, 120);
                     hudLog(`POST /fields -> status ${response.status} + ${responsePreview}`);
                 }
                 
                 if (response.status === 401) {
-                    if (urlParams.get('debug') === '1') hudLog('ERROR: Not signed in (401)');
+                    if (DEBUG) hudLog('ERROR: Not signed in (401)');
                     if (typeof showToast === 'function') {
                         showToast('Please sign in first', 'error');
                     }
@@ -354,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentFields = fields;
                 currentPdfFile = file;
                 
-                if (urlParams.get('debug') === '1') hudLog(`Success: Fields found: ${fieldCount}`);
+                if (DEBUG) hudLog(`Success: Fields found: ${fieldCount}`);
                 
                 if (fieldCount === 0) {
                     if (typeof showToast === 'function') {
@@ -380,7 +433,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         previewContainer.style.display = 'block';
                         previewContainer.setAttribute('data-has-preview', 'true');
                         previewContainer.classList.add('has-preview');
-                        if (urlParams.get('debug') === '1') hudLog(`Preview iframe set: ${previewUrl}`);
+                        
+                        // Store preview URL for download
+                        currentPreviewUrl = responseData.preview_url;
+                        if (responseData.upload_id) {
+                            currentUploadId = responseData.upload_id;
+                        }
+                        
+                        if (DEBUG) hudLog(`Preview iframe set: ${previewUrl}`);
                         
                         // Fallback link
                         if (previewLink) {
@@ -388,13 +448,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             previewLink.textContent = 'Open preview in new tab';
                         }
                     } else {
-                        if (urlParams.get('debug') === '1') hudLog('WARNING: Preview elements not found');
+                        if (DEBUG) hudLog('WARNING: Preview elements not found');
                     }
                 }
                 
                 // Render fields
                 renderFields(fields);
-                if (urlParams.get('debug') === '1') hudLog('Fields rendered');
+                if (DEBUG) hudLog('Fields rendered');
                 
             } catch (err) {
                 if (urlParams.get('debug') === '1') hudLog(`ERROR: ${err.message}`);
@@ -406,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 analyzeBtn.textContent = 'Analyze PDF';
             }
         });
-        if (urlParams.get('debug') === '1') hudLog('Analyze PDF handler attached');
+        if (DEBUG) hudLog('Analyze PDF handler attached');
     }
     
     // Intercept Fill My Form submission
@@ -414,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (urlParams.get('debug') === '1') hudLog('Fill My Form submitted');
+            if (DEBUG) hudLog('Fill My Form submitted');
             
             if (!currentPdfFile) {
                 if (typeof showToast === 'function') {
@@ -462,7 +522,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             try {
-                if (urlParams.get('debug') === '1') hudLog(`POST /fill with ${Object.keys(fieldValues).length} fields`);
+                if (DEBUG) hudLog(`POST /fill with ${Object.keys(fieldValues).length} fields`);
                 const response = await fetch('/fill', {
                     method: 'POST',
                     body: formData,
@@ -470,7 +530,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 const responseText = await response.text();
-                if (urlParams.get('debug') === '1') {
+                if (DEBUG) {
                     const responsePreview = responseText.substring(0, 120);
                     hudLog(`POST /fill -> status ${response.status} + ${responsePreview}`);
                 }
@@ -494,7 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     responseData = JSON.parse(responseText);
                 } catch (parseErr) {
-                    if (urlParams.get('debug') === '1') hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
+                    if (DEBUG) hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
                     return;
                 }
                 
@@ -508,7 +568,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         previewContainer.style.display = 'block';
                         previewContainer.setAttribute('data-has-preview', 'true');
                         previewContainer.classList.add('has-preview');
-                        if (urlParams.get('debug') === '1') hudLog(`Preview updated: ${previewUrl}`);
+                        
+                        // Store download URL if available (filled PDF)
+                        if (responseData.download_url) {
+                            currentDownloadUrl = responseData.download_url;
+                        }
+                        // Also store preview URL as fallback
+                        currentPreviewUrl = responseData.preview_url;
+                        
+                        if (DEBUG) hudLog(`Preview updated: ${previewUrl}`);
                     }
                 }
                 
@@ -527,10 +595,79 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-        if (urlParams.get('debug') === '1') hudLog('Fill form handler attached');
+        if (DEBUG) hudLog('Fill form handler attached');
     }
     
-    if (urlParams.get('debug') === '1') hudLog('All handlers attached');
+    // Download PDF button
+    const downloadBtn = document.getElementById('download-btn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (DEBUG) hudLog('Download clicked');
+            
+            let downloadUrl = null;
+            if (currentDownloadUrl) {
+                downloadUrl = currentDownloadUrl;
+            } else if (currentUploadId) {
+                downloadUrl = `/download-upload/${currentUploadId}`;
+            } else if (currentPreviewUrl) {
+                // Extract file_id from preview URL if it's /preview/{file_id}
+                const match = currentPreviewUrl.match(/\/preview\/([^\/\?]+)/);
+                if (match) {
+                    downloadUrl = `/download/${match[1]}`;
+                }
+            }
+            
+            if (downloadUrl) {
+                window.open(downloadUrl, '_blank');
+                if (DEBUG) hudLog(`Download: ${downloadUrl}`);
+            } else {
+                if (typeof showToast === 'function') {
+                    showToast('Nothing to download yet', 'error');
+                }
+                if (DEBUG) hudLog('WARNING: No download URL available');
+            }
+        });
+        if (DEBUG) hudLog('Download button handler attached');
+    }
+    
+    // Fullscreen button
+    const fullscreenBtn = document.getElementById('fullscreen-btn');
+    const previewContainerEl = document.getElementById('preview-container');
+    const previewIframeEl = document.getElementById('preview-iframe');
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (DEBUG) hudLog('Fullscreen clicked');
+            
+            try {
+                // Try preview wrapper first, then container, then iframe
+                const previewWrapper = document.getElementById('preview-wrapper');
+                if (previewWrapper && previewWrapper.requestFullscreen) {
+                    await previewWrapper.requestFullscreen();
+                } else if (previewContainerEl && previewContainerEl.requestFullscreen) {
+                    await previewContainerEl.requestFullscreen();
+                } else if (previewIframeEl && previewIframeEl.requestFullscreen) {
+                    await previewIframeEl.requestFullscreen();
+                } else {
+                    if (typeof showToast === 'function') {
+                        showToast('Fullscreen not supported in this browser', 'error');
+                    }
+                    if (DEBUG) hudLog('WARNING: Fullscreen API not available');
+                }
+            } catch (err) {
+                if (typeof showToast === 'function') {
+                    showToast('Failed to enter fullscreen', 'error');
+                }
+                if (DEBUG) hudLog(`Fullscreen error: ${err.message}`);
+            }
+        });
+        if (DEBUG) hudLog('Fullscreen button handler attached');
+    }
+    
+    if (DEBUG) hudLog('All handlers attached');
 });
 
 // Implement renderFields function (single source of truth)
@@ -541,7 +678,7 @@ function renderFields(fields) {
     const submitBtn = document.getElementById('submit-btn');
     
     if (!fieldsContainer || !fieldsList || !fieldsSummary) {
-        if (urlParams.get('debug') === '1') hudLog('ERROR: Missing fields container elements');
+        if (DEBUG) hudLog('ERROR: Missing fields container elements');
         return;
     }
     
@@ -638,7 +775,7 @@ function renderFields(fields) {
         submitBtn.style.display = 'block';
     }
     
-    if (urlParams.get('debug') === '1') hudLog(`Rendered ${fieldCount} fields`);
+    if (DEBUG) hudLog(`Rendered ${fieldCount} fields`);
 }
 
 // Expose renderFields globally
