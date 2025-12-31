@@ -632,18 +632,36 @@ document.addEventListener('DOMContentLoaded', () => {
         if (DEBUG) hudLog('Download button handler attached');
     }
     
-    // Fullscreen button
+    // Fullscreen button (toggle)
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const previewContainerEl = document.getElementById('preview-container');
     const previewIframeEl = document.getElementById('preview-iframe');
     if (fullscreenBtn) {
+        // Update button text based on fullscreen state
+        function updateFullscreenButton() {
+            const isFs = !!document.fullscreenElement;
+            if (fullscreenBtn) {
+                fullscreenBtn.textContent = isFs ? 'Exit Fullscreen' : 'Fullscreen';
+            }
+        }
+        
+        // Listen for fullscreen changes (including ESC)
+        document.addEventListener('fullscreenchange', updateFullscreenButton);
+        
         fullscreenBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             if (DEBUG) hudLog('Fullscreen clicked');
             
             try {
-                // Try preview wrapper first, then container, then iframe
+                // If already in fullscreen, exit
+                if (document.fullscreenElement) {
+                    await document.exitFullscreen();
+                    if (DEBUG) hudLog('Exited fullscreen');
+                    return;
+                }
+                
+                // Otherwise, enter fullscreen
                 const previewWrapper = document.getElementById('preview-wrapper');
                 if (previewWrapper && previewWrapper.requestFullscreen) {
                     await previewWrapper.requestFullscreen();
@@ -659,7 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (err) {
                 if (typeof showToast === 'function') {
-                    showToast('Failed to enter fullscreen', 'error');
+                    showToast('Failed to toggle fullscreen', 'error');
                 }
                 if (DEBUG) hudLog(`Fullscreen error: ${err.message}`);
             }
@@ -667,8 +685,99 @@ document.addEventListener('DOMContentLoaded', () => {
         if (DEBUG) hudLog('Fullscreen button handler attached');
     }
     
+    // Profiles menu item
+    const profilesMenuItem = document.getElementById('profiles-menu-item');
+    if (profilesMenuItem) {
+        profilesMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (DEBUG) hudLog('Profiles menu item clicked');
+            
+            // Close dropdown
+            const userPill = document.getElementById('user-pill');
+            const userDropdown = document.getElementById('user-dropdown');
+            if (userPill) userPill.classList.remove('open');
+            if (userDropdown) userDropdown.classList.remove('open');
+            
+            // Try to scroll to profiles section
+            const profilesSection = document.getElementById('profiles');
+            if (profilesSection) {
+                profilesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (DEBUG) hudLog('Scrolled to profiles section');
+            } else {
+                // Fallback: scroll to pricing section or show toast
+                const pricingSection = document.querySelector('.pricing') || document.querySelector('section');
+                if (pricingSection) {
+                    pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                if (typeof showToast === 'function') {
+                    showToast('Profiles coming soon', 'info');
+                }
+                if (DEBUG) hudLog('Profiles section not found, showing toast');
+            }
+        });
+        if (DEBUG) hudLog('Profiles menu item handler attached');
+    }
+    
     if (DEBUG) hudLog('All handlers attached');
 });
+
+// Human-friendly field label function
+function prettyLabel(name) {
+    const n = String(name || '').trim();
+    if (!n) return '';
+    
+    // Normalize: lowercase, remove non-alphanumeric
+    const key = n.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    // Special-case common abbreviations
+    const map = {
+        'dob': 'Date of Birth',
+        'dateofbirth': 'Date of Birth',
+        'birthdate': 'Date of Birth',
+        'birth_date': 'Date of Birth',
+        'phonenumber': 'Phone Number',
+        'phonenum': 'Phone Number',
+        'phone': 'Phone Number',
+        'tel': 'Phone Number',
+        'zipcode': 'ZIP Code',
+        'zip': 'ZIP Code',
+        'zip_code': 'ZIP Code',
+        'ssn': 'SSN',
+        'socialsecuritynumber': 'SSN',
+        'firstname': 'First Name',
+        'fname': 'First Name',
+        'first_name': 'First Name',
+        'lastname': 'Last Name',
+        'lname': 'Last Name',
+        'last_name': 'Last Name',
+        'addressline1': 'Address Line 1',
+        'addr1': 'Address Line 1',
+        'address1': 'Address Line 1',
+        'address_line1': 'Address Line 1',
+        'addressline2': 'Address Line 2',
+        'addr2': 'Address Line 2',
+        'address2': 'Address Line 2',
+        'address_line2': 'Address Line 2',
+        'email': 'Email',
+        'emailaddress': 'Email',
+        'email_address': 'Email'
+    };
+    
+    if (map[key]) {
+        return map[key];
+    }
+    
+    // Fallback: split snake_case/camelCase and capitalize
+    return n
+        .replace(/_/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+}
 
 // Implement renderFields function (single source of truth)
 function renderFields(fields) {
@@ -695,7 +804,8 @@ function renderFields(fields) {
     // Render each field
     fields.forEach((field) => {
         const fieldName = field.name || '';
-        const fieldLabel = field.label || fieldName;
+        // Use field.label if present, otherwise use prettyLabel
+        const fieldLabel = field.label || prettyLabel(fieldName);
         const fieldType = field.type || 'text';
         const isRequired = field.required || false;
         const fieldValue = field.value || '';
