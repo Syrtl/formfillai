@@ -64,13 +64,21 @@
             padding: 16px;
         }
         /* Legacy support - can be removed if not used elsewhere */
+        /* Ensure header/buttons have proper stacking context */
+        header.site-header,
+        .header-inner,
+        .header-right,
+        .auth-btn {
+            position: relative;
+            z-index: 5; /* Lower than modals but ensures stacking context */
+        }
         header.site-header {
             height: 56px;
             flex: 0 0 56px;
             position: sticky;
             top: 0;
             background: var(--bg);
-            z-index: 100;
+            z-index: 100; /* Keep header above content */
             border-bottom: 1px solid var(--border);
             overflow: visible;
         }
@@ -418,7 +426,6 @@
         }
         /* Fullscreen modal */
         .fullscreen-modal {
-            display: none;
             position: fixed;
             top: 0;
             left: 0;
@@ -430,6 +437,7 @@
         }
         .fullscreen-modal.active {
             display: flex;
+            pointer-events: auto; /* Active modal can receive clicks */
         }
         .fullscreen-header {
             padding: 1rem;
@@ -828,6 +836,16 @@
             margin-top: 0.5rem;
             background: #059669;
         }
+        /* Permanent CSS fix: hidden overlays do not intercept clicks */
+        .login-modal,
+        .fullscreen-modal,
+        .modal,
+        .overlay,
+        .backdrop {
+            display: none;            /* important */
+            pointer-events: none;     /* important */
+        }
+        
         .login-modal {
             position: fixed;
             top: 0;
@@ -838,15 +856,10 @@
             z-index: 2000;
             align-items: center;
             justify-content: center;
-            pointer-events: none; /* Hidden modal doesn't block clicks */
-            opacity: 0;
-            visibility: hidden;
         }
         .login-modal.active {
             display: flex;
             pointer-events: auto; /* Active modal can receive clicks */
-            opacity: 1;
-            visibility: visible;
         }
         .login-modal-content {
             background: var(--surface);
@@ -2812,6 +2825,60 @@
                 if (panel) panel.style.display = 'none';
             });
         }
+        
+        // Click-interceptor diagnostic (temporary but safe)
+        (function setupClickDebug() {
+            // Toggle by setting window.CLICK_DEBUG = true in console if needed
+            window.CLICK_DEBUG = true;
+            
+            // Create visible debug element (bottom-left)
+            const clickDebugEl = document.createElement('div');
+            clickDebugEl.id = 'click-debug-info';
+            clickDebugEl.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                background: rgba(0, 0, 0, 0.8);
+                color: #0f0;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-family: monospace;
+                font-size: 11px;
+                z-index: 10002;
+                max-width: 300px;
+                word-break: break-word;
+                display: block;
+                pointer-events: none; /* Don't block clicks itself */
+            `;
+            clickDebugEl.textContent = 'Click anywhere to see element chain';
+            document.body.appendChild(clickDebugEl);
+            
+            document.addEventListener('click', (e) => {
+                if (!window.CLICK_DEBUG) return;
+                const x = e.clientX, y = e.clientY;
+                const topEl = document.elementFromPoint(x, y);
+                let chain = [];
+                let cur = topEl;
+                for (let i = 0; i < 10 && cur; i++) {
+                    const id = cur.id ? `#${cur.id}` : '';
+                    const cls = cur.className ? `.${String(cur.className).trim().replace(/\s+/g, '.')}` : '';
+                    chain.push(`${cur.tagName}${id}${cls}`);
+                    cur = cur.parentElement;
+                }
+                const chainStr = chain.join(' -> ');
+                console.log('CLICK DEBUG: target=', e.target, 'elementFromPoint=', topEl, 'chain=', chainStr);
+                
+                // Update visible debug element
+                const info = `Click: ${e.target.tagName}${e.target.id ? '#' + e.target.id : ''}${e.target.className ? '.' + String(e.target.className).trim().replace(/\s+/g, '.') : ''}\nTop: ${topEl ? topEl.tagName + (topEl.id ? '#' + topEl.id : '') : 'none'}\nChain: ${chainStr.substring(0, 150)}${chainStr.length > 150 ? '...' : ''}`;
+                clickDebugEl.textContent = info;
+                
+                // Also update debug panel
+                if (typeof updateDebugPanel === 'function') {
+                    updateDebugPanel(`CLICK: ${e.target.tagName}${e.target.id ? '#' + e.target.id : ''} -> Top: ${topEl ? topEl.tagName + (topEl.id ? '#' + topEl.id : '') : 'none'}`);
+                }
+            }, true); // capture phase to detect interception early
+        })();
+        
         }); // End DOMContentLoaded wrapper
     </script>
 </body>
