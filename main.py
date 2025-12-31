@@ -975,10 +975,10 @@ async def extract_fields(
         except Exception as e:
             logger.warning("Failed to save uploaded PDF: upload_id=%s error=%s", upload_id, e)
             upload_id = None  # Continue without preview if save fails
-    
-    try:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        fields_metadata = extract_field_metadata(reader)
+        
+        try:
+            reader = PdfReader(BytesIO(pdf_bytes))
+            fields_metadata = extract_field_metadata(reader)
             field_count = len(fields_metadata)
             preview_url_str = f"/preview-upload/{upload_id}" if upload_id else "none"
             logger.info("POST /fields success: filename=%s size=%d fields=%d authenticated=%s user_id=%s upload_id=%s preview_url=%s",
@@ -1010,12 +1010,12 @@ async def extract_fields(
             
             # Return stable JSON shape that frontend expects
             return JSONResponse(response_data)
-    except HTTPException:
-        raise
-    except Exception as exc:
+        except HTTPException:
+            raise
+        except Exception as exc:
             logger.warning("POST /fields failed: invalid PDF filename=%s size=%d authenticated=%s user_id=%s error=%s",
                           filename, file_size, is_authenticated, user_id, str(exc))
-        raise HTTPException(
+            raise HTTPException(
                 status_code=422,
             detail="This PDF does not contain fillable form fields. Please upload a PDF with interactive form fields (AcroForm)."
             )
