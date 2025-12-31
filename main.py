@@ -2273,8 +2273,8 @@ async def verify_magic_link(request: Request, token: str) -> RedirectResponse:
     # Verify Set-Cookie header is actually on the response object we're returning
     set_cookie_header = response.headers.get("set-cookie", "")
     set_cookie_header_present = "session" in str(set_cookie_header)
-    logger.info("GET /auth/verify: token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s set-cookie_header_present=%s cookie_name=session max_age=2592000 samesite=lax secure=%s httponly=True",
-                token_prefix, user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host, redirect_url, set_cookie_header_present, is_https)
+    logger.info("GET /auth/verify: set-cookie issued token_prefix=%s user_id=%s session_id_prefix=%s secure=%s scheme=%s x_forwarded_proto=%s host=%s redirect_url=%s set-cookie_header_present=%s",
+                token_prefix, user_id, session_id_prefix, is_https, scheme, x_forwarded_proto, host, redirect_url, set_cookie_header_present)
     
     # Double-check: ensure cookie is actually set before returning
     if not set_cookie_header_present:
@@ -2668,6 +2668,76 @@ async def debug_send_test_email(request: Request, to: str) -> JSONResponse:
         )
 
 
+@app.get("/debug/cookies")
+async def debug_cookies(request: Request) -> JSONResponse:
+    """Debug endpoint to show cookie presence (production-safe, no secrets).
+    
+    Returns JSON showing:
+    - host, scheme, x-forwarded-proto
+    - which cookies are present by name (boolean)
+    - for "session" cookie: only first 8 chars prefix (or null)
+    """
+    host = request.headers.get("host", "unknown")
+    scheme = request.url.scheme
+    x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "not set")
+    
+    # Get all cookie names
+    cookie_names = list(request.cookies.keys())
+    cookies_present = {name: True for name in cookie_names}
+    
+    # Get session cookie prefix (first 8 chars only, safe to log)
+    session_cookie = request.cookies.get("session")
+    session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
+    
+    return JSONResponse({
+        "request": {
+            "host": host,
+            "scheme": scheme,
+            "x_forwarded_proto": x_forwarded_proto
+        },
+        "cookies": {
+            "names": cookie_names,
+            "count": len(cookie_names),
+            "session_present": bool(session_cookie),
+            "session_prefix": session_prefix  # Only first 8 chars, safe
+        }
+    })
+
+
+@app.get("/debug/session")
+async def debug_session(request: Request) -> JSONResponse:
+    """Debug endpoint to check session cookie and DB lookup (production-safe).
+    
+    Returns:
+    - session_present: bool (cookie exists in request)
+    - session_found: bool (session exists in DB)
+    - db_backend: str (postgres/sqlite)
+    """
+    # Check session cookie
+    session_cookie = request.cookies.get("session")
+    session_present = bool(session_cookie)
+    session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
+    
+    # Look up session in DB
+    session_found = False
+    if session_cookie:
+        try:
+            session = await db.get_session(session_cookie)
+            session_found = session is not None
+        except Exception as e:
+            logger.warning("GET /debug/session: error looking up session: %s", e)
+    
+    # Get database backend info
+    db_backend = db.get_db_backend_name() or "unknown"
+    
+    return JSONResponse({
+        "session_present": session_present,
+        "session_prefix": session_prefix,  # Only first 8 chars, safe
+        "session_found": session_found,
+        "db_backend": db_backend
+    })
+
+
 @app.get("/debug/auth")
 async def debug_auth(request: Request) -> JSONResponse:
     """Debug endpoint for authentication issues (production-safe).
@@ -2684,6 +2754,15 @@ async def debug_auth(request: Request) -> JSONResponse:
     session_cookie = request.cookies.get("session")
     session_present = bool(session_cookie)
     session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
+    
+    # Look up session in DB
+    session_found = False
+    if session_cookie:
+        try:
+            session = await db.get_session(session_cookie)
+            session_found = session is not None
+        except Exception as e:
+            logger.warning("GET /debug/auth: error looking up session: %s", e)
     
     # Get database backend info
     db_backend = db.get_db_backend_name() or "unknown"

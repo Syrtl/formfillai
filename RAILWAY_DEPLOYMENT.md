@@ -259,9 +259,9 @@ curl "https://your-app.railway.app/debug/last-magic-link?email=user@example.com"
 - Check SMTP configuration if email delivery is enabled
 - Review logs for magic link creation/verification
 
-## Copy/Paste Acceptance Tests
+## Copy/Paste Acceptance Tests (Deterministic, No DevTools Required)
 
-Use these curl commands to verify the app is working correctly:
+Use these curl commands to verify the app works correctly:
 
 ### 1) Send magic link:
 ```bash
@@ -271,30 +271,39 @@ curl -i -X POST https://<APP>/auth/send-magic-link \
 
 Expected: HTTP 200 with `{"ok": true}`. Check your email for the magic link.
 
-### 2) Verify token and capture cookie (for testing):
-After receiving the email, extract the token from the URL (`?token=...`) and run:
+### 2) Fetch last magic link (requires DEBUG_KEY):
 ```bash
+curl -s "https://<APP>/debug/last-magic-link?email=<YOUR_EMAIL>" \
+  -H "X-Debug-Key: <DEBUG_KEY>"
+```
+
+Expected: `{"ok": true, "magic_link": "https://.../auth/verify?token=..."}`
+
+### 3) Verify token and capture cookie:
+```bash
+# Extract token from magic_link in step 2, then:
 curl -i -c cookies.txt -X POST https://<APP>/auth/verify \
   -H "Content-Type: application/json" \
-  -d '{"token":"<TOKEN>"}'
+  -d '{"token":"<TOKEN_FROM_STEP_2>"}'
 ```
 
 Expected: HTTP 200 with `{"ok":true,"authenticated":true,"email":"...","plan":"free|pro"}`. Cookie file `cookies.txt` should contain a `session` cookie.
 
-### 3) Confirm cookie is stored + auth true:
+### 4) Confirm authenticated:
 ```bash
-# Check cookie presence
-curl -s -b cookies.txt https://<APP>/debug/cookies
-
-# Confirm authenticated
 curl -s -b cookies.txt https://<APP>/api/me
 ```
 
-Expected:
-- `/debug/cookies`: Shows `"session_present": true` and `"session_prefix": "..."` (first 8 chars)
-- `/api/me`: Returns `{"authenticated": true, "email": "...", "plan": "..."}`
+Expected: `{"authenticated": true, "email": "...", "plan": "..."}`
 
-### 4) Analyze PDF (authenticated):
+### 5) Check session in DB:
+```bash
+curl -s -b cookies.txt https://<APP>/debug/session
+```
+
+Expected: `{"session_present": true, "session_found": true, "db_backend": "postgres"}`
+
+### 6) Analyze PDF (authenticated):
 ```bash
 curl -i -b cookies.txt -X POST https://<APP>/fields \
   -F "pdf_file=@/absolute/path/to/file.pdf"
@@ -302,9 +311,20 @@ curl -i -b cookies.txt -X POST https://<APP>/fields \
 
 Expected:
 - HTTP 200
-- JSON includes `preview_url` (e.g., `"/preview-upload/..."`)
-- JSON includes `fields` array with extracted form fields
-- Visiting `preview_url` in browser renders PDF inline in iframe
+- JSON includes `preview_url: "/preview-upload/<id>"`
+- JSON includes `fields: [...]` array with extracted form fields
+
+### 7) Verify preview URL:
+```bash
+# Extract upload_id from preview_url in step 6, then:
+curl -I -b cookies.txt "https://<APP>/preview-upload/<UPLOAD_ID>"
+```
+
+Expected:
+- HTTP 200
+- `Content-Type: application/pdf`
+- `Content-Disposition: inline`
+- `X-Frame-Options: SAMEORIGIN`
 
 ## Deterministic Curl Tests (No Browser DevTools Required)
 
@@ -403,4 +423,5 @@ You can test the authentication flow using curl commands:
 
 - `Procfile` - Defines the web process with Railway's `$PORT` variable
 - `railway.json` - Railway-specific configuration (optional, Procfile takes precedence)
+
 
