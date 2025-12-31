@@ -463,6 +463,50 @@ def extract_field_metadata(reader: PdfReader) -> list[Dict[str, Any]]:
     for field_name, field_obj in fields.items():
         field_info: Dict[str, Any] = {"name": field_name, "value": ""}
         
+        # Extract label from PDF metadata (priority: tooltip/TU > widget annotation > name)
+        label = None
+        try:
+            if hasattr(field_obj, "get"):
+                # Try /TU (tooltip/alternate name) first
+                tu = field_obj.get("/TU")
+                if tu is not None:
+                    if hasattr(tu, "get_object"):
+                        tu = tu.get_object()
+                    if isinstance(tu, str) and tu.strip():
+                        label = tu.strip()
+                
+                # If no /TU, try /T (field title/name) which might be more descriptive
+                if not label:
+                    t = field_obj.get("/T")
+                    if t is not None:
+                        if hasattr(t, "get_object"):
+                            t = t.get_object()
+                        if isinstance(t, str) and t.strip():
+                            # Only use /T if it's different from the field name (more descriptive)
+                            if t.strip() != field_name:
+                                label = t.strip()
+                
+                # If still no label, try to get from widget annotations
+                if not label:
+                    # Try to find widget annotation with /Contents (label text)
+                    if hasattr(field_obj, "get_widgets"):
+                        widgets = field_obj.get_widgets()
+                        if widgets:
+                            for widget in widgets:
+                                if hasattr(widget, "get"):
+                                    contents = widget.get("/Contents")
+                                    if contents is not None:
+                                        if hasattr(contents, "get_object"):
+                                            contents = contents.get_object()
+                                        if isinstance(contents, str) and contents.strip():
+                                            label = contents.strip()
+                                            break
+        except Exception:
+            pass  # Continue without label
+        
+        # Set label: use extracted label or fallback to field name
+        field_info["label"] = label if label else field_name
+        
         # Get existing value if any
         try:
             if hasattr(field_obj, "get"):

@@ -699,8 +699,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (userPill) userPill.classList.remove('open');
             if (userDropdown) userDropdown.classList.remove('open');
             
-            // Try to scroll to profiles section, fallback to pricing
-            const profilesSection = document.getElementById('profiles');
+            // Try to scroll to profiles section (id="profiles-section" or id="profiles"), fallback to pricing
+            const profilesSection = document.getElementById('profiles-section') || document.getElementById('profiles');
             if (profilesSection) {
                 profilesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 if (DEBUG) hudLog('Scrolled to profiles section');
@@ -806,8 +806,8 @@ function renderFields(fields) {
     // Render each field
     fields.forEach((field) => {
         const fieldName = field.name || '';
-        // Use field.label if present, otherwise use prettyLabel
-        const fieldLabel = field.label || prettyLabel(fieldName);
+        // Use field.label from PDF (exact match), fallback to field.name
+        const fieldLabel = field.label || fieldName;
         const fieldType = field.type || 'text';
         const isRequired = field.required || false;
         const fieldValue = field.value || '';
