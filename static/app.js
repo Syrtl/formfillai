@@ -255,6 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const previewUrl = `${responseData.preview_url}?t=${Date.now()}`;
                         previewIframe.src = previewUrl;
                         previewContainer.style.display = 'block';
+                        previewContainer.setAttribute('data-has-preview', 'true');
                         previewContainer.classList.add('has-preview');
                         hudLog(`Preview iframe set: ${previewUrl}`);
                         
