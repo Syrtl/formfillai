@@ -452,7 +452,7 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     if _USE_POSTGRES:
         async with _pg_pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE email = $1",
+                "SELECT id, email, created_at, is_pro, stripe_customer_id, full_name, phone FROM users WHERE email = $1",
                 email_lower
             )
             if row:
@@ -462,6 +462,8 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
                     "created_at": row["created_at"],
                     "is_pro": bool(row["is_pro"]),
                     "stripe_customer_id": row["stripe_customer_id"],
+                    "full_name": row.get("full_name"),
+                    "phone": row.get("phone"),
                 }
             return None
     else:
@@ -490,7 +492,7 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     if _USE_POSTGRES:
         async with _pg_pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT id, email, created_at, is_pro, stripe_customer_id FROM users WHERE id = $1",
+                "SELECT id, email, created_at, is_pro, stripe_customer_id, full_name, phone FROM users WHERE id = $1",
                 user_id
             )
             if row:
@@ -500,6 +502,8 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                     "created_at": row["created_at"],
                     "is_pro": bool(row["is_pro"]),
                     "stripe_customer_id": row["stripe_customer_id"],
+                    "full_name": row.get("full_name"),
+                    "phone": row.get("phone"),
                 }
             return None
     else:
