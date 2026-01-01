@@ -842,8 +842,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (profileFullName) profileFullName.value = data.full_name || '';
                     if (profilePhone) profilePhone.value = data.phone || '';
                     
-                    // Set plan status
-                    const isPro = data.is_pro || data.plan === 'pro';
+                    // Set plan status (use strict boolean check)
+                    const isPro = data.is_pro === true || data.plan === 'pro';
                     if (profilePlanStatus) {
                         profilePlanStatus.textContent = isPro ? 'Pro' : 'Free';
                         profilePlanStatus.style.color = isPro ? 'var(--primary)' : 'var(--text)';
@@ -1094,63 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
             saveProfileBtn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                
-                const profileFullName = getEl('profileFullName');
-                const profilePhone = getEl('profilePhone');
-                
-                if (!profileFullName || !profilePhone) {
-                    setProfileStatus('Something went wrong. Please refresh.', 'error');
-                    return;
-                }
-                
-                const fullName = profileFullName.value.trim();
-                const phone = profilePhone.value.trim();
-                
-                setProfileStatus('Saving profile…', 'info');
-                
-                try {
-                    saveProfileBtn.disabled = true;
-                    saveProfileBtn.textContent = 'Saving…';
-                
-                const response = await fetch('/api/profile/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ full_name: fullName, phone: phone })
-                });
-                
-                const data = await parseResponse(response);
-                
-                if (response.ok) {
-                    setProfileStatus('Saved ✅', 'success');
-                    // Verify by calling /api/me and repopulate inputs
-                    try {
-                        const verifyResponse = await fetch('/api/me', { credentials: 'include' });
-                        if (verifyResponse.ok) {
-                            const verifyData = await verifyResponse.json();
-                            if (verifyData.authenticated) {
-                                // Repopulate inputs from verified data
-                                if (profileFullName) profileFullName.value = verifyData.full_name || '';
-                                if (profilePhone) profilePhone.value = verifyData.phone || '';
-                            }
-                        }
-                    } catch (verifyErr) {
-                        // Non-critical, just log
-                        if (DEBUG) hudLog(`Verify error: ${verifyErr.message}`);
-                    }
-                } else {
-                    const errorDetail = data.detail || 'Failed to update profile';
-                    // Show first 200 chars of error
-                    const errorPreview = errorDetail.substring(0, 200);
-                    setProfileStatus(`Error (${response.status}): ${errorPreview}`, 'error');
-                }
-            } catch (err) {
-                setProfileStatus(`Error: ${err.message}`, 'error');
-                if (DEBUG) hudLog(`Save profile error: ${err.message}`);
-            } finally {
-                saveProfileBtn.disabled = false;
-                saveProfileBtn.textContent = 'Save Changes';
-            }
+                await saveProfile();
             });
             if (DEBUG) hudLog('Save profile button handler attached');
         }
