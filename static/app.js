@@ -984,17 +984,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // Save Profile handler
         if (saveProfileBtn) {
             saveProfileBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const profileFullName = document.getElementById('profileFullName');
-            const profilePhone = document.getElementById('profilePhone');
-            
-            // Verify wiring
-            if (!profileFullName || !profilePhone) {
-                setProfileStatus('WIRING ERROR: Missing profileFullName or profilePhone', 'error');
-                return;
-            }
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const profileFullName = getEl('profileFullName');
+                const profilePhone = getEl('profilePhone');
+                
+                if (!profileFullName || !profilePhone) {
+                    setProfileStatus('Something went wrong. Please refresh.', 'error');
+                    return;
+                }
             
             const fullName = profileFullName.value.trim();
             const phone = profilePhone.value.trim();
@@ -1044,30 +1043,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveProfileBtn.disabled = false;
                 saveProfileBtn.textContent = 'Save Changes';
             }
-        });
-        if (DEBUG) hudLog('Save profile button handler attached');
-    } else {
-        if (DEBUG) hudLog('WARNING: saveProfileBtn not found');
-    }
-    
-    // Save email changes
-    const saveEmailBtn = document.getElementById('saveEmailBtn');
-    if (saveEmailBtn) {
-        saveEmailBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const profileEmailNew = document.getElementById('profileEmailNew');
-            const profileStatus = document.getElementById('profileStatus');
-            
-            if (!profileEmailNew || !profileStatus) {
-                if (DEBUG) hudLog('WIRING ERROR: Missing profileEmailNew or profileStatus');
-                if (profileStatus) {
-                    profileStatus.textContent = 'Something went wrong. Please refresh.';
-                    profileStatus.style.color = '#ef4444';
+            });
+            if (DEBUG) hudLog('Save profile button handler attached');
+        }
+        
+        // Save Email handler
+        if (saveEmailBtn) {
+            saveEmailBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const profileEmailNew = getEl('profileEmailNew');
+                
+                if (!profileEmailNew) {
+                    setProfileStatus('Something went wrong. Please refresh.', 'error');
+                    return;
                 }
-                return;
-            }
             
             const newEmail = profileEmailNew.value.trim();
             
