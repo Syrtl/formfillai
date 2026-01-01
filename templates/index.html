@@ -885,6 +885,22 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             position: relative;
         }
+        
+        #profileModalContent {
+            max-height: 80vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #profileModalContent > div:last-child {
+            position: sticky;
+            bottom: 0;
+            background: var(--surface);
+            padding-top: 12px;
+            margin-top: auto;
+            border-top: 1px solid var(--border);
+        }
         .login-modal-content h3 {
             margin: 0 0 0.5rem;
             color: var(--text);
@@ -1174,7 +1190,7 @@
     
     <!-- Profile Modal -->
     <div id="profileModal" class="login-modal">
-        <div class="login-modal-content">
+        <div id="profileModalContent" class="login-modal-content">
             <h3>Profile Settings</h3>
             <div id="profileStatus" style="min-height: 0; margin-bottom: 1rem;"></div>
             
@@ -1212,13 +1228,15 @@
             <div style="margin-bottom: 1.5rem;">
                 <h4 style="margin-bottom: 0.75rem;">Plan Actions</h4>
                 <div id="profile-plan-actions">
-                    <!-- Buttons will be dynamically inserted here -->
                     <button type="button" id="manageSubscriptionBtn" style="display: none;" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
                     <button type="button" id="upgradeToProBtn" style="display: none;" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Upgrade to Pro</button>
                 </div>
             </div>
             
-            <button type="button" id="closeProfileBtn" class="secondary" style="width: 100%;">Close</button>
+            <!-- Sticky footer with Close button -->
+            <div style="position: sticky; bottom: 0; background: var(--surface); padding-top: 12px; margin-top: 1rem; border-top: 1px solid var(--border);">
+                <button type="button" id="closeProfileBtn" class="secondary" style="width: 100%;">Close</button>
+            </div>
         </div>
     </div>
     <!-- Fullscreen Modal -->
