@@ -1556,7 +1556,9 @@ async def create_billing_portal(request: Request) -> JSONResponse:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     user_id = user["id"]
-    logger.info("HIT /billing/portal user_id=%s", user_id)
+    stripe_customer_id_present = bool(user.get("stripe_customer_id"))
+    logger.info("HIT /billing/portal user_id=%s stripe_customer_id_present=%s", 
+                user_id, stripe_customer_id_present)
     
     if not STRIPE_SECRET_KEY:
         logger.warning("POST /billing/portal: Stripe not configured user_id=%s", user.get("id"))
