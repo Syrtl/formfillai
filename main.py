@@ -1570,7 +1570,7 @@ async def create_billing_portal(request: Request) -> JSONResponse:
         logger.warning("POST /billing/portal: no customer_id user_id=%s", user_id)
         raise HTTPException(
             status_code=400,
-            detail="No Stripe customer ID. This account was marked Pro manually; billing portal is unavailable."
+            detail="No Stripe customer found for this account. Please upgrade via checkout first."
         )
     
     try:

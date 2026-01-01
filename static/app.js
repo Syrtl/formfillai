@@ -869,10 +869,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper function for profile status
     function setProfileStatus(msg, type) {
         const profileStatus = getEl('profileStatus');
-        if (!profileStatus) return;
+        if (!profileStatus) {
+            if (DEBUG) hudLog('WARNING: profileStatus element not found');
+            return;
+        }
         
         if (!msg) {
             profileStatus.textContent = '';
+            profileStatus.style.color = '';
             return;
         }
         
@@ -885,6 +889,30 @@ document.addEventListener('DOMContentLoaded', () => {
         
         profileStatus.textContent = msg;
         profileStatus.style.color = color;
+        profileStatus.style.display = 'block';
+        profileStatus.style.minHeight = '1.5rem';
+        profileStatus.style.padding = '0.5rem';
+        profileStatus.style.borderRadius = '4px';
+        if (type === 'error') {
+            profileStatus.style.backgroundColor = '#fee2e2';
+        } else if (type === 'success') {
+            profileStatus.style.backgroundColor = '#dcfce7';
+        } else {
+            profileStatus.style.backgroundColor = '#f3f4f6';
+        }
+    }
+    
+    // Helper functions for profile status (for convenience)
+    function setProfileStatusSuccess(msg) {
+        setProfileStatus(msg, 'success');
+    }
+    
+    function setProfileStatusError(msg) {
+        setProfileStatus(msg, 'error');
+    }
+    
+    function clearProfileStatus() {
+        setProfileStatus('', 'info');
     }
     
     // Helper to parse response based on content-type
