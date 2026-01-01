@@ -1156,7 +1156,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Show saving status
             const profileStatus = document.getElementById('profile-status');
             if (profileStatus) {
-                profileStatus.innerHTML = '<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">Saving…</div>';
+                profileStatus.innerHTML = '<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">Updating email…</div>';
             }
             
             try {

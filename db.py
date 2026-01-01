@@ -756,6 +756,79 @@ async def update_user_profile(user_id: str, full_name: Optional[str], phone: Opt
             return rows_affected == 1
 
 
+async def get_user_email_changed_at(user_id: str) -> Optional[int]:
+    """Get email_changed_at timestamp for a user."""
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT email_changed_at FROM users WHERE id = $1",
+                user_id
+            )
+            if row:
+                # Convert timestamp to int if it's a datetime
+                changed_at = row.get("email_changed_at")
+                if changed_at is None:
+                    return None
+                if isinstance(changed_at, (int, float)):
+                    return int(changed_at)
+                # If it's a datetime, convert to timestamp
+                import time
+                if hasattr(changed_at, 'timestamp'):
+                    return int(changed_at.timestamp())
+                return None
+            return None
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT email_changed_at FROM users WHERE id = ?",
+                (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0] if row[0] is not None else None
+                return None
+
+
+async def update_user_email(user_id: str, new_email: str) -> Tuple[bool, Optional[str]]:
+    """Update user email and set email_changed_at. Returns (success, error_msg)."""
+    now = int(time.time())
+    
+    if _USE_POSTGRES:
+        async with _pg_pool.acquire() as conn:
+            try:
+                result = await conn.execute(
+                    "UPDATE users SET email = $1, email_changed_at = $2 WHERE id = $3",
+                    new_email, now, user_id
+                )
+                rows_affected = int(result.split()[-1]) if result else 0
+                logger.info("update_user_email: user_id=%s new_email=%s rows_affected=%s", user_id, new_email, rows_affected)
+                return (rows_affected == 1, None)
+            except Exception as e:
+                error_msg = str(e)
+                if "unique" in error_msg.lower() or "duplicate" in error_msg.lower():
+                    return (False, "Email already in use")
+                logger.error("update_user_email error: user_id=%s error=%s", user_id, error_msg)
+                return (False, error_msg)
+    else:
+        async with aiosqlite.connect(DB_PATH) as db:
+            try:
+                cursor = await db.execute(
+                    "UPDATE users SET email = ?, email_changed_at = ? WHERE id = ?",
+                    (new_email, now, user_id)
+                )
+                await db.commit()
+                rows_affected = cursor.rowcount
+                logger.info("update_user_email: user_id=%s new_email=%s rows_affected=%s", user_id, new_email, rows_affected)
+                return (rows_affected == 1, None)
+            except Exception as e:
+                error_msg = str(e)
+                if "unique" in error_msg.lower() or "duplicate" in error_msg.lower():
+                    return (False, "Email already in use")
+                logger.error("update_user_email error: user_id=%s error=%s", user_id, error_msg)
+                return (False, error_msg)
+
+
 async def create_session(user_id: str, expires_in_seconds: int = 30 * 24 * 60 * 60) -> str:
     """Create a session and return session_id."""
     session_id = secrets.token_urlsafe(32)

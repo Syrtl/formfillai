@@ -1348,7 +1348,7 @@ async def get_me(request: Request) -> JSONResponse:
 
 @app.get("/debug/me-profile")
 async def debug_me_profile(request: Request) -> JSONResponse:
-    """Debug endpoint to show profile fields (no secrets)."""
+    """Debug endpoint to show profile fields (no secrets). Auth required."""
     user = await get_current_user_async(request)
     if not user:
         return JSONResponse({
@@ -1356,15 +1356,66 @@ async def debug_me_profile(request: Request) -> JSONResponse:
             "user_id": None,
             "email": None,
             "full_name": None,
-            "phone": None
+            "phone": None,
+            "email_changed_at": None,
+            "stripe_customer_id": None
         })
+    
+    email_changed_at = await db.get_user_email_changed_at(user.get("id"))
     
     return JSONResponse({
         "authenticated": True,
         "user_id": user.get("id"),
         "email": user.get("email"),
         "full_name": user.get("full_name"),
-        "phone": user.get("phone")
+        "phone": user.get("phone"),
+        "email_changed_at": email_changed_at,
+        "stripe_customer_id": user.get("stripe_customer_id")
+    })
+
+
+@app.post("/debug/profile-set")
+async def debug_profile_set(request: Request) -> JSONResponse:
+    """Debug endpoint to set profile fields. Protected by ADMIN_API_KEY."""
+    # Check admin key
+    admin_key = request.headers.get("X-Admin-Key") or request.query_params.get("key")
+    required_key = os.getenv("ADMIN_API_KEY")
+    
+    if not required_key or admin_key != required_key:
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    # Only allow in non-production unless admin key is provided
+    if IS_PRODUCTION and not admin_key:
+        raise HTTPException(status_code=403, detail="Not available in production without admin key")
+    
+    body = await request.json()
+    user_id = body.get("user_id")
+    email = body.get("email")
+    full_name = body.get("full_name")
+    phone = body.get("phone")
+    
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    
+    if email:
+        success, error_msg = await db.update_user_email(user_id, email.lower().strip())
+        if not success:
+            raise HTTPException(status_code=400, detail=error_msg or "Failed to update email")
+    
+    if full_name is not None or phone is not None:
+        success = await db.update_user_profile(user_id, full_name, phone)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to update profile")
+    
+    user = await db.get_user_by_id(user_id)
+    return JSONResponse({
+        "ok": True,
+        "user": {
+            "id": user.get("id") if user else None,
+            "email": user.get("email") if user else None,
+            "full_name": user.get("full_name") if user else None,
+            "phone": user.get("phone") if user else None
+        }
     })
 
 
@@ -1374,6 +1425,9 @@ async def update_profile(request: Request) -> JSONResponse:
     user = await get_current_user_async(request)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    user_id = user["id"]
+    logger.info("HIT /api/profile/update user_id=%s", user_id)
     
     try:
         body = await request.json()
@@ -1385,8 +1439,6 @@ async def update_profile(request: Request) -> JSONResponse:
             raise HTTPException(status_code=400, detail="Full name too long (max 200 characters)")
         if phone is not None and len(phone) > 50:
             raise HTTPException(status_code=400, detail="Phone number too long (max 50 characters)")
-        
-        user_id = user["id"]
         
         # Normalize: trim strings, allow empty -> store NULL
         full_name_normalized = full_name.strip() if full_name and full_name.strip() else None
@@ -1423,6 +1475,9 @@ async def update_email(request: Request) -> JSONResponse:
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
+    user_id = user["id"]
+    logger.info("HIT /api/profile/update-email user_id=%s", user_id)
+    
     try:
         body = await request.json()
         new_email = body.get("new_email") or body.get("email")  # Support both "new_email" and "email"
@@ -1436,7 +1491,6 @@ async def update_email(request: Request) -> JSONResponse:
         if not re.match(email_pattern, new_email):
             raise HTTPException(status_code=400, detail="Invalid email format")
         
-        user_id = user["id"]
         current_email = user.get("email", "").lower()
         new_email_lower = new_email.lower().strip()
         
@@ -1494,6 +1548,9 @@ async def create_billing_portal(request: Request) -> JSONResponse:
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
+    user_id = user["id"]
+    logger.info("HIT /billing/portal user_id=%s", user_id)
+    
     if not STRIPE_SECRET_KEY:
         logger.warning("POST /billing/portal: Stripe not configured user_id=%s", user.get("id"))
         raise HTTPException(
@@ -1503,10 +1560,10 @@ async def create_billing_portal(request: Request) -> JSONResponse:
     
     stripe_customer_id = user.get("stripe_customer_id")
     if not stripe_customer_id:
-        logger.warning("POST /billing/portal: no customer_id user_id=%s", user.get("id"))
+        logger.warning("POST /billing/portal: no customer_id user_id=%s", user_id)
         raise HTTPException(
             status_code=400,
-            detail="No Stripe customer found for this account. Please upgrade to connect billing."
+            detail="No Stripe customer ID. This account was marked Pro manually; billing portal is unavailable."
         )
     
     try:
@@ -1519,8 +1576,8 @@ async def create_billing_portal(request: Request) -> JSONResponse:
             return_url=f"{public_base_url}/",
         )
         
-        logger.info("POST /billing/portal: success user_id=%s customer_id=%s", user.get("id"), stripe_customer_id)
-        return JSONResponse({"url": portal_session.url})
+        logger.info("POST /billing/portal: success user_id=%s customer_id=%s", user_id, stripe_customer_id)
+        return JSONResponse({"ok": True, "url": portal_session.url})
     except HTTPException as e:
         logger.warning("POST /billing/portal: failed user_id=%s status=%s detail=%s", user.get("id") if user else "unknown", e.status_code, e.detail)
         raise
