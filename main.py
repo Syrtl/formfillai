@@ -1433,8 +1433,6 @@ async def update_profile(request: Request) -> JSONResponse:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     user_id = user["id"]
-    logger.info("HIT /api/profile/update user_id=%s full_name_len=%s phone_len=%s", 
-                user_id, len(full_name) if full_name else 0, len(phone) if phone else 0)
     
     try:
         body = await request.json()
@@ -1451,8 +1449,8 @@ async def update_profile(request: Request) -> JSONResponse:
         full_name_normalized = full_name.strip() if full_name and full_name.strip() else None
         phone_normalized = phone.strip() if phone and phone.strip() else None
         
-        # Log lengths (not values)
-        logger.info("POST /api/profile/update: user_id=%s full_name_len=%s phone_len=%s",
+        # HIT log with normalized lengths
+        logger.info("HIT /api/profile/update user_id=%s full_name_len=%s phone_len=%s",
                    user_id, len(full_name_normalized) if full_name_normalized else 0,
                    len(phone_normalized) if phone_normalized else 0)
         
