@@ -243,6 +243,11 @@ async def _init_postgres_tables(conn) -> None:
     except:
         pass
     try:
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_changed_at TIMESTAMP")
+    except:
+        pass
+    # Also try BIGINT for compatibility
+    try:
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_changed_at BIGINT")
     except:
         pass

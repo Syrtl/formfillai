@@ -872,7 +872,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             if (portalResponse.ok) {
                                                 if (portalData.url) {
                                                     // Try to open in new tab
-                                                    const newWindow = window.open(portalData.url, '_blank', 'noopener,noreferrer');
+                                                    const newWindow = window.open(portalUrl, '_blank', 'noopener,noreferrer');
                                                     
                                                     if (newWindow) {
                                                         setProfileStatusSuccess('Billing portal opened in a new tab.');
@@ -882,7 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                                         if (DEBUG) hudLog('Billing portal opened in new tab');
                                                     } else {
                                                         // Popup blocked, fallback to same window
-                                                        window.location.href = portalData.url;
+                                                        window.location.href = portalUrl;
                                                         setProfileStatusError('Popup blocked, redirecting…');
                                                         if (typeof showToast === 'function') {
                                                             showToast('Popup blocked, redirecting…', 'info');
