@@ -1176,21 +1176,21 @@
     <div id="profileModal" class="login-modal">
         <div class="login-modal-content">
             <h3>Profile Settings</h3>
-            <div id="profile-status" style="min-height: 0; margin-bottom: 1rem;"></div>
+            <div id="profileStatus" style="min-height: 0; margin-bottom: 1rem;"></div>
             
             <!-- Account Info Section -->
             <div style="margin-bottom: 1.5rem;">
                 <h4 style="margin-bottom: 0.75rem;">Account Information</h4>
                 <div style="margin-bottom: 0.75rem;">
-                    <label for="profileEmail" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Email</label>
-                    <input type="email" id="profileEmail" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; color: #0f172a; background: #fff;">
+                    <label for="profileEmailCurrent" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Email</label>
+                    <input type="email" id="profileEmailCurrent" readonly style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; color: #0f172a; background: #f5f5f5;">
                     <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">You can change your email once every 7 days.</p>
                 </div>
                 <div style="margin-bottom: 0.75rem;">
-                    <label for="profileNewEmail" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">New Email</label>
-                    <input type="email" id="profileNewEmail" placeholder="Enter new email" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; color: #0f172a; background: #fff;">
+                    <label for="profileEmailNew" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">New Email</label>
+                    <input type="email" id="profileEmailNew" placeholder="Enter new email" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; color: #0f172a; background: #fff;">
                 </div>
-                <button type="button" id="save-email-btn" class="primary" style="width: 100%; margin-bottom: 0.75rem;">Save Email</button>
+                <button type="button" id="saveEmailBtn" class="primary" style="width: 100%; margin-bottom: 0.75rem;">Save Email</button>
                 <div style="margin-bottom: 0.75rem;">
                     <label for="profileFullName" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Full Name</label>
                     <input type="text" id="profileFullName" placeholder="Enter your full name" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
@@ -1199,22 +1199,26 @@
                     <label for="profilePhone" style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Phone (Optional)</label>
                     <input type="tel" id="profilePhone" placeholder="Enter your phone number" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
-                <button type="button" id="save-profile-btn" class="primary" style="width: 100%;">Save Changes</button>
+                <button type="button" id="saveProfileBtn" class="primary" style="width: 100%;">Save Changes</button>
             </div>
             
             <!-- Plan Status Section -->
             <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
                 <h4 style="margin-bottom: 0.75rem;">Plan Status</h4>
-                <p id="profile-plan-status" style="font-weight: 600; color: var(--primary);">—</p>
+                <p id="profilePlanStatus" style="font-weight: 600; color: var(--primary);">—</p>
             </div>
             
             <!-- Plan Actions Section -->
             <div style="margin-bottom: 1.5rem;">
                 <h4 style="margin-bottom: 0.75rem;">Plan Actions</h4>
-                <div id="profile-plan-actions"></div>
+                <div id="profile-plan-actions">
+                    <!-- Buttons will be dynamically inserted here -->
+                    <button type="button" id="manageSubscriptionBtn" style="display: none;" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
+                    <button type="button" id="upgradeToProBtn" style="display: none;" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Upgrade to Pro</button>
+                </div>
             </div>
             
-            <button type="button" id="closeProfileModalBtn" class="secondary" style="width: 100%;">Close</button>
+            <button type="button" id="closeProfileBtn" class="secondary" style="width: 100%;">Close</button>
         </div>
     </div>
     <!-- Fullscreen Modal -->

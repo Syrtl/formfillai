@@ -765,9 +765,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Close profile modal handlers
-    const closeProfileModalBtn = document.getElementById('closeProfileModalBtn');
-    if (closeProfileModalBtn && profileModal) {
-        closeProfileModalBtn.addEventListener('click', () => {
+    const closeProfileBtn = document.getElementById('closeProfileBtn');
+    if (closeProfileBtn && profileModal) {
+        closeProfileBtn.addEventListener('click', () => {
             profileModal.classList.remove('active');
         });
     }
@@ -792,43 +792,53 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadProfileData() {
         // Wiring check - verify all required elements exist
         const profileModal = document.getElementById('profileModal');
-        const profileEmail = document.getElementById('profileEmail');
-        const profileNewEmail = document.getElementById('profileNewEmail');
+        const profileEmailCurrent = document.getElementById('profileEmailCurrent');
+        const profileEmailNew = document.getElementById('profileEmailNew');
         const profileFullName = document.getElementById('profileFullName');
         const profilePhone = document.getElementById('profilePhone');
-        const saveProfileBtn = document.getElementById('save-profile-btn');
-        const saveEmailBtn = document.getElementById('save-email-btn');
-        const profileStatus = document.getElementById('profile-status');
+        const saveProfileBtn = document.getElementById('saveProfileBtn');
+        const saveEmailBtn = document.getElementById('saveEmailBtn');
+        const profileStatus = document.getElementById('profileStatus');
+        const profilePlanStatus = document.getElementById('profilePlanStatus');
+        const profilePlanActions = document.getElementById('profile-plan-actions');
+        const manageSubscriptionBtn = document.getElementById('manageSubscriptionBtn');
+        const upgradeToProBtn = document.getElementById('upgradeToProBtn');
         
-        // Check all required static elements (manage-subscription-btn is created dynamically)
+        // Check all required elements
         const missing = [];
         if (!profileModal) missing.push('profileModal');
-        if (!profileEmail) missing.push('profileEmail');
-        if (!profileNewEmail) missing.push('profileNewEmail');
+        if (!profileEmailCurrent) missing.push('profileEmailCurrent');
+        if (!profileEmailNew) missing.push('profileEmailNew');
         if (!profileFullName) missing.push('profileFullName');
         if (!profilePhone) missing.push('profilePhone');
-        if (!saveProfileBtn) missing.push('save-profile-btn');
-        if (!saveEmailBtn) missing.push('save-email-btn');
-        if (!profileStatus) missing.push('profile-status');
+        if (!saveProfileBtn) missing.push('saveProfileBtn');
+        if (!saveEmailBtn) missing.push('saveEmailBtn');
+        if (!profileStatus) missing.push('profileStatus');
+        if (!profilePlanStatus) missing.push('profilePlanStatus');
+        if (!profilePlanActions) missing.push('profile-plan-actions');
         
         if (missing.length > 0) {
-            const errorMsg = `WIRING ERROR: Missing ${missing.join(', ')}`;
-            if (profileStatus) {
-                profileStatus.textContent = errorMsg;
-                profileStatus.style.color = '#ef4444';
+            if (DEBUG) {
+                const errorMsg = `WIRING ERROR: Missing ${missing.join(', ')}`;
+                if (profileStatus) {
+                    profileStatus.textContent = errorMsg;
+                    profileStatus.style.color = '#ef4444';
+                }
+                hudLog(errorMsg);
+            } else {
+                // In production, show user-friendly message
+                if (profileStatus) {
+                    profileStatus.textContent = 'Something went wrong. Please refresh.';
+                    profileStatus.style.color = '#ef4444';
+                }
             }
-            if (DEBUG) hudLog(errorMsg);
             return;
         }
         
-        // Show ready status
+        // Clear status
         if (profileStatus) {
-            profileStatus.textContent = 'Ready.';
-            profileStatus.style.color = '#666';
+            profileStatus.textContent = '';
         }
-        
-        const profilePlanStatus = document.getElementById('profile-plan-status');
-        const profilePlanActions = document.getElementById('profile-plan-actions');
         
         try {
             const response = await fetch('/api/me', { credentials: 'include' });
@@ -836,8 +846,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
                 if (data.authenticated) {
                     // Set account info
-                    if (profileEmail) profileEmail.value = data.email || '';
-                    if (profileNewEmail) profileNewEmail.value = data.email || '';
+                    if (profileEmailCurrent) profileEmailCurrent.value = data.email || '';
+                    if (profileEmailNew) profileEmailNew.value = data.email || '';
                     if (profileFullName) profileFullName.value = data.full_name || '';
                     if (profilePhone) profilePhone.value = data.phone || '';
                     
@@ -925,57 +935,29 @@ document.addEventListener('DOMContentLoaded', () => {
                                             setProfileStatus(`Error: ${err.message}`, 'error');
                                             if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
                                         } finally {
-                                            manageSubscriptionBtn.disabled = false;
-                                            manageSubscriptionBtn.textContent = 'Manage Subscription';
+                                            newBtn.disabled = false;
+                                            newBtn.textContent = 'Manage Subscription';
                                         }
                                     });
                                     if (DEBUG) hudLog('Manage subscription button handler attached');
                                 }
-                            } else {
-                                // Pro user without Stripe customer - show Connect Billing
-                                profilePlanActions.innerHTML = `
-                                    <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Your account is Pro but not linked to Stripe yet. Contact support or re-upgrade to connect billing.</p>
-                                    <button type="button" id="connect-billing-btn" class="primary" style="width: 100%;">Connect Billing</button>
-                                `;
-                                
-                                const connectBillingBtn = document.getElementById('connect-billing-btn');
-                                if (connectBillingBtn) {
-                                    connectBillingBtn.addEventListener('click', () => {
-                                        profileModal.classList.remove('active');
-                                        const upgradeForm = document.getElementById('upgrade-form');
-                                        if (upgradeForm) {
-                                            upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                            const upgradeBtnMain = document.getElementById('upgrade-btn');
-                                            if (upgradeBtnMain) {
-                                                upgradeBtnMain.click();
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        } else {
-                            // Check if Stripe is enabled by trying to find upgrade form
+                    }
+                    
+                    // Attach Upgrade to Pro handler if button exists
+                    if (upgradeToProBtn && upgradeToProBtn.style.display !== 'none' && !upgradeToProBtn.disabled) {
+                        upgradeToProBtn.addEventListener('click', () => {
+                            profileModal.classList.remove('active');
                             const upgradeForm = document.getElementById('upgrade-form');
                             if (upgradeForm) {
-                                profilePlanActions.innerHTML = `
-                                    <button type="button" id="upgrade-to-pro-btn" class="primary" style="width: 100%;">Upgrade to Pro</button>
-                                `;
-                                
-                                const upgradeBtn = document.getElementById('upgrade-to-pro-btn');
-                                if (upgradeBtn) {
-                                    upgradeBtn.addEventListener('click', () => {
-                                        const upgradeForm = document.getElementById('upgrade-form');
-                                        if (upgradeForm) {
-                                            profileModal.classList.remove('active');
-                                            upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                            const upgradeBtnMain = document.getElementById('upgrade-btn');
-                                            if (upgradeBtnMain) {
-                                                upgradeBtnMain.click();
-                                            }
-                                        }
-                                    });
+                                upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                const upgradeBtnMain = document.getElementById('upgrade-btn');
+                                if (upgradeBtnMain) {
+                                    upgradeBtnMain.click();
                                 }
-                            } else {
+                            }
+                        });
+                    }
+                } else {
                                 profilePlanActions.innerHTML = '<p style="color: var(--text-muted);">Payments not available.</p>';
                             }
                         }
@@ -989,7 +971,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Helper function for profile status
     function setProfileStatus(msg, type) {
-        const profileStatus = document.getElementById('profile-status');
+        const profileStatus = document.getElementById('profileStatus');
         if (!profileStatus) return;
         
         if (!msg) {
@@ -1089,20 +1071,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Save email changes
-    const saveEmailBtn = document.getElementById('save-email-btn');
+    const saveEmailBtn = document.getElementById('saveEmailBtn');
     if (saveEmailBtn) {
         saveEmailBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             
-            const profileNewEmail = document.getElementById('profileNewEmail');
+            const profileEmailNew = document.getElementById('profileEmailNew');
+            const profileStatus = document.getElementById('profileStatus');
             
-            if (!profileNewEmail) {
-                setProfileStatus('WIRING ERROR: Missing profileNewEmail', 'error');
+            if (!profileEmailNew || !profileStatus) {
+                if (DEBUG) hudLog('WIRING ERROR: Missing profileEmailNew or profileStatus');
+                if (profileStatus) {
+                    profileStatus.textContent = 'Something went wrong. Please refresh.';
+                    profileStatus.style.color = '#ef4444';
+                }
                 return;
             }
             
-            const newEmail = profileNewEmail.value.trim();
+            const newEmail = profileEmailNew.value.trim();
             
             if (!newEmail) {
                 setProfileStatus('Email cannot be empty', 'error');
