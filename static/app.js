@@ -87,6 +87,31 @@ let currentDownloadUrl = null;
 let currentUploadId = null;
 
 // Auth UI update function
+// Apply plan UI (hide pricing for Pro users)
+function applyPlanUI(me) {
+    const pricingSection = document.getElementById('pricing') || document.getElementById('plan-section');
+    const upgradeBtn = document.getElementById('upgrade-btn');
+    
+    if (me && me.is_pro === true) {
+        // Hide pricing section for Pro users
+        if (pricingSection) {
+            pricingSection.style.display = 'none';
+        }
+        // Hide upgrade button if exists
+        if (upgradeBtn) {
+            upgradeBtn.style.display = 'none';
+        }
+    } else {
+        // Show pricing section for Free users
+        if (pricingSection) {
+            pricingSection.style.display = '';
+        }
+        if (upgradeBtn) {
+            upgradeBtn.style.display = '';
+        }
+    }
+}
+
 async function updateAuthUI() {
     const authLoggedOut = document.getElementById('auth-logged-out');
     const authLoggedIn = document.getElementById('auth-logged-in');
@@ -120,19 +145,8 @@ async function updateAuthUI() {
                     }
                 }
                 
-                // Hide pricing section for Pro users
-                const isPro = data.is_pro || data.plan === 'pro';
-                if (isPro) {
-                    if (pricingSection) pricingSection.style.display = 'none';
-                    if (upgradeBtn) upgradeBtn.style.display = 'none';
-                    if (upgradeForm) upgradeForm.style.display = 'none';
-                    if (proStatusSection) proStatusSection.style.display = 'block';
-                } else {
-                    if (pricingSection) pricingSection.style.display = 'block';
-                    if (upgradeBtn) upgradeBtn.style.display = 'block';
-                    if (upgradeForm) upgradeForm.style.display = 'block';
-                    if (proStatusSection) proStatusSection.style.display = 'none';
-                }
+                // Apply plan UI (hide pricing for Pro users)
+                applyPlanUI(data);
                 
                 if (DEBUG) hudLog(`Auth: authenticated as ${data.email}, plan: ${data.plan || 'free'}, is_pro: ${data.is_pro || false}`);
             } else {
@@ -860,35 +874,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         
-                                        const profileStatus = document.getElementById('profile-status');
-                                        
-                                        if (!profileStatus) {
-                                            return;
-                                        }
-                                        
-                                        // Test network connectivity first
-                                        try {
-                                            const pingResponse = await fetch('/debug/ping', { credentials: 'include' });
-                                            if (!pingResponse.ok) {
-                                                if (profileStatus) {
-                                                    profileStatus.textContent = 'Network failure: can\'t reach server';
-                                                    profileStatus.style.color = '#ef4444';
-                                                }
-                                                return;
-                                            }
-                                        } catch (pingErr) {
-                                            if (profileStatus) {
-                                                profileStatus.textContent = `Network failure: can't reach server (${pingErr.message})`;
-                                                profileStatus.style.color = '#ef4444';
-                                            }
-                                            return;
-                                        }
-                                        
-                                        // Show status
-                                        if (profileStatus) {
-                                            profileStatus.textContent = 'Opening billing portal…';
-                                            profileStatus.style.color = '#666';
-                                        }
+                                        setProfileStatus('Opening billing portal…', 'info');
                                         
                                         try {
                                             manageSubscriptionBtn.disabled = true;
@@ -910,25 +896,16 @@ document.addEventListener('DOMContentLoaded', () => {
                                                     const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
                                                     
                                                     if (w) {
-                                                        if (profileStatus) {
-                                                            profileStatus.textContent = 'Billing portal opened in a new tab.';
-                                                            profileStatus.style.color = '#16a34a';
-                                                        }
+                                                        setProfileStatus('Billing portal opened ✅', 'success');
                                                         if (DEBUG) hudLog('Billing portal opened in new tab');
                                                     } else {
                                                         // Popup blocked, fallback to same window
                                                         window.location.href = portalUrl;
-                                                        if (profileStatus) {
-                                                            profileStatus.textContent = 'Popup blocked, redirecting…';
-                                                            profileStatus.style.color = '#666';
-                                                        }
+                                                        setProfileStatus('Popup blocked, redirecting…', 'info');
                                                         if (DEBUG) hudLog('Billing portal: popup blocked, using window.location');
                                                     }
                                                 } else {
-                                                    if (profileStatus) {
-                                                        profileStatus.textContent = 'No portal URL returned';
-                                                        profileStatus.style.color = '#ef4444';
-                                                    }
+                                                    setProfileStatus('Error: No portal URL returned', 'error');
                                                 }
                                             } else {
                                                 // Handle specific error cases
@@ -936,29 +913,17 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 
                                                 if (portalResponse.status === 503) {
                                                     // Stripe not configured
-                                                    if (profileStatus) {
-                                                        profileStatus.textContent = 'Payments are not configured. Portal unavailable.';
-                                                        profileStatus.style.color = '#ef4444';
-                                                    }
+                                                    setProfileStatus('Payments are not configured. Portal unavailable.', 'error');
                                                 } else if (portalResponse.status === 400) {
                                                     // No customer ID
-                                                    if (profileStatus) {
-                                                        profileStatus.textContent = errorDetail;
-                                                        profileStatus.style.color = '#ef4444';
-                                                    }
+                                                    setProfileStatus(errorDetail, 'error');
                                                 } else {
                                                     // Other errors
-                                                    if (profileStatus) {
-                                                        profileStatus.textContent = `Error: ${errorDetail} (HTTP ${portalResponse.status})`;
-                                                        profileStatus.style.color = '#ef4444';
-                                                    }
+                                                    setProfileStatus(`Error (${portalResponse.status}): ${errorDetail}`, 'error');
                                                 }
                                             }
                                         } catch (err) {
-                                            if (profileStatus) {
-                                                profileStatus.textContent = `Error: ${err.message}`;
-                                                profileStatus.style.color = '#ef4444';
-                                            }
+                                            setProfileStatus(`Error: ${err.message}`, 'error');
                                             if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
                                         } finally {
                                             manageSubscriptionBtn.disabled = false;
@@ -1023,26 +988,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Helper functions for profile status
-    function setProfileStatusSuccess(msg) {
+    // Helper function for profile status
+    function setProfileStatus(msg, type) {
         const profileStatus = document.getElementById('profile-status');
-        if (profileStatus) {
-            profileStatus.innerHTML = `<div style="color: #16a34a; padding: 0.5rem; background: rgba(22, 163, 74, 0.1); border-radius: 4px; margin-bottom: 1rem;">${msg}</div>`;
+        if (!profileStatus) return;
+        
+        if (!msg) {
+            profileStatus.textContent = '';
+            return;
         }
-    }
-    
-    function setProfileStatusError(msg) {
-        const profileStatus = document.getElementById('profile-status');
-        if (profileStatus) {
-            profileStatus.innerHTML = `<div style="color: #ef4444; padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: 4px; margin-bottom: 1rem;">${msg}</div>`;
+        
+        let color = '#666'; // default gray for info
+        if (type === 'success') {
+            color = '#16a34a'; // green
+        } else if (type === 'error') {
+            color = '#ef4444'; // red
         }
-    }
-    
-    function clearProfileStatus() {
-        const profileStatus = document.getElementById('profile-status');
-        if (profileStatus) {
-            profileStatus.innerHTML = '';
-        }
+        
+        profileStatus.textContent = msg;
+        profileStatus.style.color = color;
     }
     
     // Helper to parse response based on content-type
@@ -1064,45 +1028,17 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const profileFullName = document.getElementById('profileFullName');
             const profilePhone = document.getElementById('profilePhone');
-            const profileStatus = document.getElementById('profile-status');
             
             // Verify wiring
-            if (!profileFullName || !profilePhone || !profileStatus) {
-                if (profileStatus) {
-                    profileStatus.textContent = 'WIRING ERROR: Missing profileFullName, profilePhone, or profile-status';
-                    profileStatus.style.color = '#ef4444';
-                }
+            if (!profileFullName || !profilePhone) {
+                setProfileStatus('WIRING ERROR: Missing profileFullName or profilePhone', 'error');
                 return;
             }
             
             const fullName = profileFullName.value.trim();
             const phone = profilePhone.value.trim();
             
-            // Test network connectivity first
-            try {
-                const pingResponse = await fetch('/debug/ping', { credentials: 'include' });
-                if (!pingResponse.ok) {
-                    if (profileStatus) {
-                        profileStatus.textContent = 'Network failure: can\'t reach server';
-                        profileStatus.style.color = '#ef4444';
-                    }
-                    return;
-                }
-            } catch (pingErr) {
-                if (profileStatus) {
-                    profileStatus.textContent = `Network failure: can't reach server (${pingErr.message})`;
-                    profileStatus.style.color = '#ef4444';
-                }
-                return;
-            }
-            
-            clearProfileStatus();
-            
-            // Show sending status
-            if (profileStatus) {
-                profileStatus.textContent = 'Saving profile…';
-                profileStatus.style.color = '#666';
-            }
+            setProfileStatus('Saving profile…', 'info');
             
             try {
                 saveProfileBtn.disabled = true;
@@ -1118,66 +1054,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await parseResponse(response);
                 
                 if (response.ok) {
-                    // Verify by calling /api/me
+                    setProfileStatus('Saved ✅', 'success');
+                    // Verify by calling /api/me and repopulate inputs
                     try {
                         const verifyResponse = await fetch('/api/me', { credentials: 'include' });
                         if (verifyResponse.ok) {
                             const verifyData = await verifyResponse.json();
                             if (verifyData.authenticated) {
-                                const savedFullName = verifyData.full_name || '';
-                                const savedPhone = verifyData.phone || '';
-                                
-                                // Compare (normalize empty strings)
-                                const fullNameMatch = (fullName || '') === (savedFullName || '');
-                                const phoneMatch = (phone || '') === (savedPhone || '');
-                                
-                                if (fullNameMatch && phoneMatch) {
-                                    if (profileStatus) {
-                                        profileStatus.textContent = 'Saved ✅';
-                                        profileStatus.style.color = '#16a34a';
-                                    }
-                                    // Repopulate inputs from verified data
-                                    if (profileFullName) profileFullName.value = savedFullName;
-                                    if (profilePhone) profilePhone.value = savedPhone;
-                                    // Refresh header
-                                    await updateAuthUI();
-                                } else {
-                                    if (profileStatus) {
-                                        profileStatus.textContent = `Save succeeded but /api/me mismatch. Expected: "${fullName}", "${phone}". Got: "${savedFullName}", "${savedPhone}"`;
-                                        profileStatus.style.color = '#ef4444';
-                                    }
-                                }
-                            } else {
-                                if (profileStatus) {
-                                    profileStatus.textContent = 'Save succeeded but /api/me returned not authenticated';
-                                    profileStatus.style.color = '#ef4444';
-                                }
-                            }
-                        } else {
-                            if (profileStatus) {
-                                profileStatus.textContent = `Save succeeded but /api/me verification failed: HTTP ${verifyResponse.status}`;
-                                profileStatus.style.color = '#ef4444';
+                                // Repopulate inputs from verified data
+                                if (profileFullName) profileFullName.value = verifyData.full_name || '';
+                                if (profilePhone) profilePhone.value = verifyData.phone || '';
                             }
                         }
                     } catch (verifyErr) {
-                        if (profileStatus) {
-                            profileStatus.textContent = `Save succeeded but verification error: ${verifyErr.message}`;
-                            profileStatus.style.color = '#ef4444';
-                        }
+                        // Non-critical, just log
+                        if (DEBUG) hudLog(`Verify error: ${verifyErr.message}`);
                     }
                 } else {
-                    // Show error
                     const errorDetail = data.detail || 'Failed to update profile';
-                    if (profileStatus) {
-                        profileStatus.textContent = `Error: ${errorDetail} (HTTP ${response.status})`;
-                        profileStatus.style.color = '#ef4444';
-                    }
+                    setProfileStatus(`Error (${response.status}): ${errorDetail}`, 'error');
                 }
             } catch (err) {
-                if (profileStatus) {
-                    profileStatus.textContent = `Error: ${err.message}`;
-                    profileStatus.style.color = '#ef4444';
-                }
+                setProfileStatus(`Error: ${err.message}`, 'error');
                 if (DEBUG) hudLog(`Save profile error: ${err.message}`);
             } finally {
                 saveProfileBtn.disabled = false;
@@ -1256,11 +1154,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await parseResponse(response);
                 
                 if (response.ok) {
-                    if (profileStatus) {
-                        profileStatus.textContent = 'Email updated ✅';
-                        profileStatus.style.color = '#16a34a';
-                    }
+                    setProfileStatus('Email updated ✅', 'success');
                     // Update header email immediately
+                    const userEmailEl = document.getElementById('user-email');
                     if (userEmailEl) {
                         userEmailEl.textContent = data.email || newEmail;
                     }
@@ -1268,6 +1164,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const profileEmail = document.getElementById('profileEmail');
                     if (profileEmail) {
                         profileEmail.value = data.email || newEmail;
+                    }
+                    // Also update profileNewEmail
+                    if (profileNewEmail) {
+                        profileNewEmail.value = data.email || newEmail;
                     }
                     // Refresh auth UI
                     await updateAuthUI();
@@ -1277,31 +1177,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Handle specific status codes
                     if (response.status === 429) {
                         // Cooldown - show exact message with days remaining
-                        if (profileStatus) {
-                            profileStatus.textContent = errorDetail;
-                            profileStatus.style.color = '#ef4444';
-                        }
+                        setProfileStatus(errorDetail, 'error');
                     } else if (response.status === 409) {
                         // Email already taken
-                        if (profileStatus) {
-                            profileStatus.textContent = errorDetail;
-                            profileStatus.style.color = '#ef4444';
-                        }
+                        setProfileStatus(errorDetail, 'error');
                     } else {
                         // Other errors
-                        if (profileStatus) {
-                            profileStatus.textContent = `Error: ${errorDetail} (HTTP ${response.status})`;
-                            profileStatus.style.color = '#ef4444';
-                        }
+                        setProfileStatus(`Error (${response.status}): ${errorDetail}`, 'error');
                     }
                 }
             } catch (err) {
-                const errorMsg = `Error: ${err.message}`;
-                const errorPreview = err.toString().substring(0, 200);
-                setProfileStatusError(`${errorMsg}<br><small>${errorPreview}</small>`);
-                if (typeof showToast === 'function') {
-                    showToast('Error updating email', 'error');
-                }
+                setProfileStatus(`Error: ${err.message}`, 'error');
                 if (DEBUG) hudLog(`Save email error: ${err.message}`);
             } finally {
                 saveEmailBtn.disabled = false;
