@@ -1346,6 +1346,12 @@ async def get_me(request: Request) -> JSONResponse:
     })
 
 
+@app.get("/debug/ping")
+async def debug_ping() -> JSONResponse:
+    """Simple ping endpoint to test network connectivity."""
+    return JSONResponse({"ok": True})
+
+
 @app.get("/debug/me-profile")
 async def debug_me_profile(request: Request) -> JSONResponse:
     """Debug endpoint to show profile fields (no secrets). Auth required."""
