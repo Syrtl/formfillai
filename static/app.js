@@ -1124,7 +1124,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (DEBUG) hudLog('Save profile button handler attached');
     } else {
-        if (DEBUG) hudLog('WARNING: save-profile-btn not found');
+        if (DEBUG) hudLog('WARNING: saveProfileBtn not found');
     }
     
     // Save email changes
