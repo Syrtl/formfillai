@@ -798,10 +798,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const profilePhone = document.getElementById('profilePhone');
         const saveProfileBtn = document.getElementById('save-profile-btn');
         const saveEmailBtn = document.getElementById('save-email-btn');
-        const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
         const profileStatus = document.getElementById('profile-status');
         
-        // Check all required elements
+        // Check all required static elements (manage-subscription-btn is created dynamically)
         const missing = [];
         if (!profileModal) missing.push('profileModal');
         if (!profileEmail) missing.push('profileEmail');
