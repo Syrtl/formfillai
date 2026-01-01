@@ -793,6 +793,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const profilePhone = getEl('profilePhone');
         const profileStatus = getEl('profileStatus');
         const profilePlanStatus = getEl('profilePlanStatus');
+        const profilePlanActions = getEl('profile-plan-actions');
+        const saveProfileBtn = getEl('saveProfileBtn');
+        const saveEmailBtn = getEl('saveEmailBtn');
         
         // Check all required elements
         const missing = [];
@@ -808,29 +811,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!profilePlanActions) missing.push('profile-plan-actions');
         
         if (missing.length > 0) {
-            if (DEBUG) {
-                const errorMsg = `WIRING ERROR: Missing ${missing.join(', ')}`;
-                if (profileStatus) {
-                    profileStatus.textContent = errorMsg;
-                    profileStatus.style.color = '#ef4444';
-                }
-                hudLog(errorMsg);
-            } else {
-                // In production, show user-friendly message
-                if (profileStatus) {
-                    profileStatus.textContent = 'Something went wrong. Please refresh.';
-                    profileStatus.style.color = '#ef4444';
-                }
+            const errorMsg = `WIRING ERROR: Missing ${missing.join(', ')}`;
+            if (profileStatus) {
+                profileStatus.textContent = errorMsg;
+                profileStatus.style.color = '#ef4444';
+                profileStatus.style.backgroundColor = '#fee2e2';
+                profileStatus.style.padding = '0.75rem';
+                profileStatus.style.borderRadius = '4px';
+                profileStatus.style.display = 'block';
             }
+            if (DEBUG) hudLog(errorMsg);
             return;
         }
         
         // Clear status
         if (profileStatus) {
             profileStatus.textContent = '';
+            profileStatus.style.backgroundColor = '';
         }
         
         try {
+            setProfileStatus('Loading profile data…', 'info');
             const response = await fetch('/api/me', { credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
@@ -850,20 +851,96 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // Apply plan actions
                     applyPlanActions(data);
+                    
+                    // Hide pricing section for Pro users
+                    const pricingSection = getEl('pricing');
+                    if (pricingSection) {
+                        pricingSection.style.display = isPro ? 'none' : 'block';
+                    }
+                    
+                    // Clear loading status
+                    clearProfileStatus();
+                } else {
+                    setProfileStatus('Not authenticated. Please sign in.', 'error');
                 }
+            } else {
+                setProfileStatus(`Failed to load profile (HTTP ${response.status})`, 'error');
             }
         } catch (err) {
+            const errorMsg = `Failed to load profile data: ${err.message}`;
+            setProfileStatus(errorMsg, 'error');
             if (DEBUG) hudLog(`Profile load error: ${err.message}`);
-            if (profileStatus) {
-                profileStatus.textContent = 'Failed to load profile data. Please refresh.';
-                profileStatus.style.color = '#ef4444';
-            }
         }
     }
     
     // Helper function to get element by ID
     function getEl(id) {
         return document.getElementById(id);
+    }
+    
+    // Save profile function (called by both direct handler and event delegation)
+    async function saveProfile() {
+        const profileFullName = getEl('profileFullName');
+        const profilePhone = getEl('profilePhone');
+        const saveProfileBtn = getEl('saveProfileBtn');
+        
+        if (!profileFullName || !profilePhone) {
+            setProfileStatus('WIRING ERROR: Missing profileFullName or profilePhone', 'error');
+            return;
+        }
+        
+        const fullName = profileFullName.value.trim();
+        const phone = profilePhone.value.trim();
+        
+        setProfileStatus('Saving profile…', 'info');
+        
+        try {
+            if (saveProfileBtn) {
+                saveProfileBtn.disabled = true;
+                saveProfileBtn.textContent = 'Saving…';
+            }
+            
+            const response = await fetch('/api/profile/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ full_name: fullName, phone: phone })
+            });
+            
+            const data = await parseResponse(response);
+            
+            if (response.ok) {
+                setProfileStatus('Saved ✅', 'success');
+                // Verify by calling /api/me and repopulate inputs
+                try {
+                    const verifyResponse = await fetch('/api/me', { credentials: 'include' });
+                    if (verifyResponse.ok) {
+                        const verifyData = await verifyResponse.json();
+                        if (verifyData.authenticated) {
+                            // Repopulate inputs from verified data
+                            if (profileFullName) profileFullName.value = verifyData.full_name || '';
+                            if (profilePhone) profilePhone.value = verifyData.phone || '';
+                        }
+                    }
+                } catch (verifyErr) {
+                    // Non-critical, just log
+                    if (DEBUG) hudLog(`Verify error: ${verifyErr.message}`);
+                }
+            } else {
+                const errorDetail = data.detail || 'Failed to update profile';
+                // Show first 200 chars of error
+                const errorPreview = errorDetail.substring(0, 200);
+                setProfileStatus(`Error (HTTP ${response.status}): ${errorPreview}`, 'error');
+            }
+        } catch (err) {
+            setProfileStatus(`Error: ${err.message}`, 'error');
+            if (DEBUG) hudLog(`Save profile error: ${err.message}`);
+        } finally {
+            if (saveProfileBtn) {
+                saveProfileBtn.disabled = false;
+                saveProfileBtn.textContent = 'Save Changes';
+            }
+        }
     }
     
     // Helper function for profile status
