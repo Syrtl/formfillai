@@ -1001,7 +1001,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Save profile changes (full_name + phone)
-    const saveProfileBtn = document.getElementById('save-profile-btn');
+    const saveProfileBtn = document.getElementById('saveProfileBtn');
     if (saveProfileBtn) {
         saveProfileBtn.addEventListener('click', async (e) => {
             e.preventDefault();
