@@ -860,90 +860,147 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // Set plan actions
                     if (profilePlanActions) {
+                        // Hide all buttons first
+                        if (manageSubscriptionBtn) manageSubscriptionBtn.style.display = 'none';
+                        if (upgradeToProBtn) upgradeToProBtn.style.display = 'none';
+                        
+                        // Clear any helper text
+                        const existingText = profilePlanActions.querySelector('p');
+                        if (existingText) existingText.remove();
+                        
                         if (isPro) {
                             const stripeCustomerId = data.stripe_customer_id;
                             const stripeEnabled = data.stripe_enabled;
                             
-                            if (!stripeEnabled) {
-                                // Stripe not configured - show disabled button
-                                profilePlanActions.innerHTML = `
-                                    <button type="button" disabled class="secondary" style="width: 100%; margin-bottom: 0.5rem; opacity: 0.6; cursor: not-allowed;">Payments unavailable</button>
-                                    <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Payments are not configured. Portal unavailable.</p>
-                                `;
-                            } else if (stripeCustomerId) {
+                            if (stripeEnabled && stripeCustomerId) {
                                 // Pro user with Stripe customer - show Manage Subscription
-                                profilePlanActions.innerHTML = `
-                                    <button type="button" id="manage-subscription-btn" class="primary" style="width: 100%; margin-bottom: 0.5rem;">Manage Subscription</button>
-                                    <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">Manage your subscription, payment methods, and billing in the Stripe portal.</p>
-                                `;
-                                
-                                const manageSubscriptionBtn = document.getElementById('manage-subscription-btn');
                                 if (manageSubscriptionBtn) {
-                                    manageSubscriptionBtn.addEventListener('click', async (e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        
-                                        setProfileStatus('Opening billing portal…', 'info');
-                                        
-                                        try {
-                                            manageSubscriptionBtn.disabled = true;
-                                            manageSubscriptionBtn.textContent = 'Opening…';
-                                            
-                                            const portalResponse = await fetch('/billing/portal', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                credentials: 'include',
-                                                body: '{}'
-                                            });
-                                            
-                                            const portalData = await parseResponse(portalResponse);
-                                            
-                                            if (portalResponse.ok) {
-                                                const portalUrl = portalData.url;
-                                                if (portalUrl) {
-                                                    // Try to open in new tab
-                                                    const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
-                                                    
-                                                    if (w) {
-                                                        setProfileStatus('Billing portal opened ✅', 'success');
-                                                        if (DEBUG) hudLog('Billing portal opened in new tab');
-                                                    } else {
-                                                        // Popup blocked, fallback to same window
-                                                        window.location.href = portalUrl;
-                                                        setProfileStatus('Popup blocked, redirecting…', 'info');
-                                                        if (DEBUG) hudLog('Billing portal: popup blocked, using window.location');
-                                                    }
-                                                } else {
-                                                    setProfileStatus('Error: No portal URL returned', 'error');
-                                                }
-                                            } else {
-                                                // Handle specific error cases
-                                                const errorDetail = portalData.detail || 'Failed to open billing portal';
-                                                
-                                                if (portalResponse.status === 503) {
-                                                    // Stripe not configured
-                                                    setProfileStatus('Payments are not configured. Portal unavailable.', 'error');
-                                                } else if (portalResponse.status === 400) {
-                                                    // No customer ID
-                                                    setProfileStatus(errorDetail, 'error');
-                                                } else {
-                                                    // Other errors
-                                                    setProfileStatus(`Error (${portalResponse.status}): ${errorDetail}`, 'error');
-                                                }
-                                            }
-                                        } catch (err) {
-                                            setProfileStatus(`Error: ${err.message}`, 'error');
-                                            if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
-                                        } finally {
-                                            newBtn.disabled = false;
-                                            newBtn.textContent = 'Manage Subscription';
-                                        }
-                                    });
-                                    if (DEBUG) hudLog('Manage subscription button handler attached');
+                                    manageSubscriptionBtn.style.display = 'block';
+                                    manageSubscriptionBtn.disabled = false;
+                                    manageSubscriptionBtn.textContent = 'Manage Subscription';
+                                    manageSubscriptionBtn.className = 'primary';
+                                    manageSubscriptionBtn.style.opacity = '';
+                                    manageSubscriptionBtn.style.cursor = '';
                                 }
+                                const helperText = document.createElement('p');
+                                helperText.style.cssText = 'font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;';
+                                helperText.textContent = 'Manage your subscription, payment methods, and billing in the Stripe portal.';
+                                profilePlanActions.appendChild(helperText);
+                            } else {
+                                // Pro user without Stripe - show disabled button
+                                if (manageSubscriptionBtn) {
+                                    manageSubscriptionBtn.style.display = 'block';
+                                    manageSubscriptionBtn.disabled = true;
+                                    manageSubscriptionBtn.textContent = 'Billing portal unavailable';
+                                    manageSubscriptionBtn.className = 'secondary';
+                                    manageSubscriptionBtn.style.opacity = '0.6';
+                                    manageSubscriptionBtn.style.cursor = 'not-allowed';
+                                }
+                                const helperText = document.createElement('p');
+                                helperText.style.cssText = 'font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;';
+                                helperText.textContent = 'No Stripe customer ID for this account.';
+                                profilePlanActions.appendChild(helperText);
+                            }
+                        } else {
+                            // Free user - show Upgrade to Pro
+                            if (upgradeToProBtn) {
+                                upgradeToProBtn.style.display = 'block';
+                                upgradeToProBtn.disabled = !data.stripe_enabled;
+                                if (!data.stripe_enabled) {
+                                    upgradeToProBtn.className = 'secondary';
+                                    upgradeToProBtn.style.opacity = '0.6';
+                                    upgradeToProBtn.style.cursor = 'not-allowed';
+                                    const helperText = document.createElement('p');
+                                    helperText.style.cssText = 'font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;';
+                                    helperText.textContent = 'Payments are not configured.';
+                                    profilePlanActions.appendChild(helperText);
+                                }
+                            }
+                        }
                     }
                     
-                    // Attach Upgrade to Pro handler if button exists
+                    // Attach Manage Subscription handler if button exists and is enabled
+                    if (manageSubscriptionBtn && manageSubscriptionBtn.style.display !== 'none' && !manageSubscriptionBtn.disabled) {
+                        // Remove existing listeners by cloning
+                        const newBtn = manageSubscriptionBtn.cloneNode(true);
+                        manageSubscriptionBtn.parentNode.replaceChild(newBtn, manageSubscriptionBtn);
+                        
+                        newBtn.addEventListener('click', async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            setProfileStatus('Opening billing portal…', 'info');
+                            
+                            try {
+                                newBtn.disabled = true;
+                                newBtn.textContent = 'Opening…';
+                                
+                                const portalResponse = await fetch('/billing/portal', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: '{}'
+                                });
+                                
+                                const portalData = await parseResponse(portalResponse);
+                                
+                                if (portalResponse.ok) {
+                                    const portalUrl = portalData.url;
+                                    if (portalUrl) {
+                                        // Try to open in new tab
+                                        const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
+                                        
+                                        if (w) {
+                                            setProfileStatus('Billing portal opened ✅', 'success');
+                                            if (DEBUG) hudLog('Billing portal opened in new tab');
+                                        } else {
+                                            // Popup blocked, fallback to same window
+                                            window.location.href = portalUrl;
+                                            setProfileStatus('Popup blocked, redirecting…', 'info');
+                                            if (DEBUG) hudLog('Billing portal: popup blocked, using window.location');
+                                        }
+                                    } else {
+                                        setProfileStatus('Error: No portal URL returned', 'error');
+                                    }
+                                } else {
+                                    // Handle specific error cases
+                                    const errorDetail = portalData.detail || 'Failed to open billing portal';
+                                    
+                                    if (portalResponse.status === 503) {
+                                        // Stripe not configured
+                                        setProfileStatus('Payments are not configured. Portal unavailable.', 'error');
+                                        // Disable button for next time
+                                        newBtn.disabled = true;
+                                        newBtn.className = 'secondary';
+                                        newBtn.style.opacity = '0.6';
+                                        newBtn.style.cursor = 'not-allowed';
+                                    } else if (portalResponse.status === 400) {
+                                        // No customer ID
+                                        setProfileStatus(errorDetail, 'error');
+                                        // Disable button for next time
+                                        newBtn.disabled = true;
+                                        newBtn.className = 'secondary';
+                                        newBtn.style.opacity = '0.6';
+                                        newBtn.style.cursor = 'not-allowed';
+                                    } else {
+                                        // Other errors
+                                        setProfileStatus(`Error (${portalResponse.status}): ${errorDetail}`, 'error');
+                                    }
+                                }
+                            } catch (err) {
+                                setProfileStatus(`Error: ${err.message}`, 'error');
+                                if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
+                            } finally {
+                                if (!newBtn.disabled) {
+                                    newBtn.disabled = false;
+                                    newBtn.textContent = 'Manage Subscription';
+                                }
+                            }
+                        });
+                        if (DEBUG) hudLog('Manage subscription button handler attached');
+                    }
+                    
+                    // Attach Upgrade to Pro handler if button exists and is enabled
                     if (upgradeToProBtn && upgradeToProBtn.style.display !== 'none' && !upgradeToProBtn.disabled) {
                         upgradeToProBtn.addEventListener('click', () => {
                             profileModal.classList.remove('active');
@@ -956,16 +1013,16 @@ document.addEventListener('DOMContentLoaded', () => {
                                 }
                             }
                         });
-                    }
-                } else {
-                                profilePlanActions.innerHTML = '<p style="color: var(--text-muted);">Payments not available.</p>';
-                            }
-                        }
+                        if (DEBUG) hudLog('Upgrade to Pro button handler attached');
                     }
                 }
             }
         } catch (err) {
             if (DEBUG) hudLog(`Profile load error: ${err.message}`);
+            if (profileStatus) {
+                profileStatus.textContent = 'Failed to load profile data. Please refresh.';
+                profileStatus.style.color = '#ef4444';
+            }
         }
     }
     
