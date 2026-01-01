@@ -1097,22 +1097,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const data = await parseResponse(response);
                 
-                // Always show HTTP status
-                if (profileStatus) {
-                    const statusMsg = `HTTP ${response.status} ${response.statusText}`;
-                    if (response.ok) {
-                        profileStatus.innerHTML = `<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">${statusMsg}</div>`;
-                    } else {
-                        const errorDetail = data.detail || 'Failed to update profile';
-                        const responsePreview = JSON.stringify(data).substring(0, 200);
-                        setProfileStatusError(`${statusMsg}: ${errorDetail}<br><small>Response: ${responsePreview}</small>`);
-                        if (typeof showToast === 'function') {
-                            showToast(errorDetail, 'error');
-                        }
-                        return;
-                    }
-                }
-                
                 if (response.ok) {
                     // Verify by calling /api/me
                     try {
@@ -1128,34 +1112,51 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const phoneMatch = (phone || '') === (savedPhone || '');
                                 
                                 if (fullNameMatch && phoneMatch) {
-                                    setProfileStatusSuccess('Saved ✅');
-                                    if (typeof showToast === 'function') {
-                                        showToast('Profile updated successfully', 'success');
+                                    if (profileStatus) {
+                                        profileStatus.textContent = 'Saved ✅';
+                                        profileStatus.style.color = '#16a34a';
                                     }
+                                    // Repopulate inputs from verified data
+                                    if (profileFullName) profileFullName.value = savedFullName;
+                                    if (profilePhone) profilePhone.value = savedPhone;
                                     // Refresh header
                                     await updateAuthUI();
                                 } else {
-                                    setProfileStatusError(`Save returned ok but /api/me did not update — backend/db bug. Expected: full_name="${fullName}", phone="${phone}". Got: full_name="${savedFullName}", phone="${savedPhone}"`);
-                                    if (typeof showToast === 'function') {
-                                        showToast('Save succeeded but verification failed', 'error');
+                                    if (profileStatus) {
+                                        profileStatus.textContent = `Save succeeded but /api/me mismatch. Expected: "${fullName}", "${phone}". Got: "${savedFullName}", "${savedPhone}"`;
+                                        profileStatus.style.color = '#ef4444';
                                     }
                                 }
                             } else {
-                                setProfileStatusError('Save succeeded but /api/me returned not authenticated');
+                                if (profileStatus) {
+                                    profileStatus.textContent = 'Save succeeded but /api/me returned not authenticated';
+                                    profileStatus.style.color = '#ef4444';
+                                }
                             }
                         } else {
-                            setProfileStatusError(`Save succeeded but /api/me verification failed: HTTP ${verifyResponse.status}`);
+                            if (profileStatus) {
+                                profileStatus.textContent = `Save succeeded but /api/me verification failed: HTTP ${verifyResponse.status}`;
+                                profileStatus.style.color = '#ef4444';
+                            }
                         }
                     } catch (verifyErr) {
-                        setProfileStatusError(`Save succeeded but verification error: ${verifyErr.message}`);
+                        if (profileStatus) {
+                            profileStatus.textContent = `Save succeeded but verification error: ${verifyErr.message}`;
+                            profileStatus.style.color = '#ef4444';
+                        }
+                    }
+                } else {
+                    // Show error
+                    const errorDetail = data.detail || 'Failed to update profile';
+                    if (profileStatus) {
+                        profileStatus.textContent = `Error: ${errorDetail} (HTTP ${response.status})`;
+                        profileStatus.style.color = '#ef4444';
                     }
                 }
             } catch (err) {
-                const errorMsg = `Error: ${err.message}`;
-                const errorPreview = err.toString().substring(0, 200);
-                setProfileStatusError(`${errorMsg}<br><small>${errorPreview}</small>`);
-                if (typeof showToast === 'function') {
-                    showToast('Error updating profile', 'error');
+                if (profileStatus) {
+                    profileStatus.textContent = `Error: ${err.message}`;
+                    profileStatus.style.color = '#ef4444';
                 }
                 if (DEBUG) hudLog(`Save profile error: ${err.message}`);
             } finally {
