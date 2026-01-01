@@ -201,6 +201,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
+    // Bind profile modal handlers (primary method)
+    bindProfileModalHandlers();
+    
     // Get required elements
     const signInBtn = document.getElementById('signInBtn');
     const signInModal = document.getElementById('signInModal');
