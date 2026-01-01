@@ -1071,7 +1071,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 } else {
                     const errorDetail = data.detail || 'Failed to update profile';
-                    setProfileStatus(`Error (${response.status}): ${errorDetail}`, 'error');
+                    // Show first 200 chars of error
+                    const errorPreview = errorDetail.substring(0, 200);
+                    setProfileStatus(`Error (${response.status}): ${errorPreview}`, 'error');
                 }
             } catch (err) {
                 setProfileStatus(`Error: ${err.message}`, 'error');
@@ -1094,50 +1096,20 @@ document.addEventListener('DOMContentLoaded', () => {
             e.stopPropagation();
             
             const profileNewEmail = document.getElementById('profileNewEmail');
-            const profileStatus = document.getElementById('profile-status');
-            const userEmailEl = document.getElementById('user-email');
             
-            if (!profileNewEmail || !profileStatus) {
-                if (profileStatus) {
-                    profileStatus.textContent = 'WIRING ERROR: Missing profileNewEmail or profile-status';
-                    profileStatus.style.color = '#ef4444';
-                }
+            if (!profileNewEmail) {
+                setProfileStatus('WIRING ERROR: Missing profileNewEmail', 'error');
                 return;
             }
             
             const newEmail = profileNewEmail.value.trim();
             
             if (!newEmail) {
-                if (profileStatus) {
-                    profileStatus.textContent = 'Email cannot be empty';
-                    profileStatus.style.color = '#ef4444';
-                }
+                setProfileStatus('Email cannot be empty', 'error');
                 return;
             }
             
-            // Test network connectivity first
-            try {
-                const pingResponse = await fetch('/debug/ping', { credentials: 'include' });
-                if (!pingResponse.ok) {
-                    if (profileStatus) {
-                        profileStatus.textContent = 'Network failure: can\'t reach server';
-                        profileStatus.style.color = '#ef4444';
-                    }
-                    return;
-                }
-            } catch (pingErr) {
-                if (profileStatus) {
-                    profileStatus.textContent = `Network failure: can't reach server (${pingErr.message})`;
-                    profileStatus.style.color = '#ef4444';
-                }
-                return;
-            }
-            
-            // Show saving status
-            if (profileStatus) {
-                profileStatus.textContent = 'Updating email…';
-                profileStatus.style.color = '#666';
-            }
+            setProfileStatus('Updating email…', 'info');
             
             try {
                 saveEmailBtn.disabled = true;
