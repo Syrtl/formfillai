@@ -1318,11 +1318,12 @@ document.addEventListener('click', async (e) => {
                 const portalData = await parseResponse(portalResponse);
                 
                 if (portalResponse.ok) {
-                    const portalUrl = portalData.url;
+                    // Handle both {"ok": true, "url": ...} and {"url": ...} formats
+                    const portalUrl = portalData.url || portalData.data?.url;
                     if (portalUrl) {
                         const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
                         if (w) {
-                            setProfileStatus('Billing portal opened ✅', 'success');
+                            setProfileStatus('Billing portal opened in new tab ✅', 'success');
                             if (DEBUG) hudLog('Billing portal opened in new tab');
                         } else {
                             window.location.href = portalUrl;
@@ -1331,9 +1332,10 @@ document.addEventListener('click', async (e) => {
                         }
                     } else {
                         setProfileStatus('Error: No portal URL returned', 'error');
+                        if (DEBUG) hudLog(`Billing portal response: ${JSON.stringify(portalData)}`);
                     }
                 } else {
-                    const errorDetail = portalData.detail || 'Failed to open billing portal';
+                    const errorDetail = portalData.detail || portalData.message || 'Failed to open billing portal';
                     if (portalResponse.status === 503) {
                         setProfileStatus('Payments are not configured. Portal unavailable.', 'error');
                         btn.disabled = true;
@@ -1347,7 +1349,8 @@ document.addEventListener('click', async (e) => {
                         btn.style.opacity = '0.6';
                         btn.style.cursor = 'not-allowed';
                     } else {
-                        setProfileStatus(`Error (${portalResponse.status}): ${errorDetail}`, 'error');
+                        const errorPreview = errorDetail.substring(0, 200);
+                        setProfileStatus(`Error (${portalResponse.status}): ${errorPreview}`, 'error');
                     }
                 }
             } catch (err) {
