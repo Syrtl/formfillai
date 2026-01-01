@@ -831,7 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         try {
-            setProfileStatus('Loading profile data…', 'info');
+            setProfileStatus('Loading profile data…', 'info', { autoHide: false });
             const response = await fetch('/api/me', { credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
@@ -1243,7 +1243,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 e.stopPropagation();
                 
-                setProfileStatus('Opening billing portal…', 'info');
+                setProfileStatus('Opening billing portal…', 'info', { autoHide: false });
                 
                 try {
                     manageSubscriptionBtn.disabled = true;
@@ -1379,7 +1379,7 @@ document.addEventListener('click', async (e) => {
                 return;
             }
             
-            setProfileStatus('Updating email…', 'info');
+            setProfileStatus('Updating email…', 'info', { autoHide: false });
             
             try {
                 btn.disabled = true;
