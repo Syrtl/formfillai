@@ -992,13 +992,28 @@ document.addEventListener('DOMContentLoaded', () => {
         setProfileStatus('', 'info');
     }
     
-    // Helper to parse response based on content-type
+    // Helper to parse response based on content-type (read once, handle errors)
     async function parseResponse(response) {
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-            return await response.json();
-        } else {
-            return { detail: await response.text() };
+        try {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                const text = await response.text();
+                if (!text) {
+                    return {};
+                }
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    if (DEBUG) hudLog(`JSON parse error: ${e.message}, text: ${text.substring(0, 200)}`);
+                    return { detail: text };
+                }
+            } else {
+                const text = await response.text();
+                return { detail: text || 'Unknown error' };
+            }
+        } catch (err) {
+            if (DEBUG) hudLog(`parseResponse error: ${err.message}`);
+            return { detail: err.message || 'Failed to parse response' };
         }
     }
     
@@ -1027,14 +1042,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const existingText = profilePlanActions.querySelector('p');
         if (existingText) existingText.remove();
         
-        const isPro = me.is_pro || me.plan === 'pro';
+        // Use strict boolean checks
+        const isPro = me.is_pro === true || me.plan === 'pro';
+        const stripeEnabled = me.stripe_enabled === true;
+        const stripeCustomerId = me.stripe_customer_id;
         
         if (isPro) {
-            const stripeCustomerId = me.stripe_customer_id;
-            const stripeEnabled = me.stripe_enabled;
+            // Pro user - show Manage Subscription (hide Upgrade)
+            if (upgradeToProBtn) upgradeToProBtn.style.display = 'none';
             
             if (stripeEnabled && stripeCustomerId) {
-                // Pro user with Stripe customer - show Manage Subscription
+                // Pro user with Stripe customer - show Manage Subscription enabled
                 if (manageSubscriptionBtn) {
                     manageSubscriptionBtn.style.display = 'block';
                     manageSubscriptionBtn.disabled = false;
@@ -1052,30 +1070,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (manageSubscriptionBtn) {
                     manageSubscriptionBtn.style.display = 'block';
                     manageSubscriptionBtn.disabled = true;
-                    manageSubscriptionBtn.textContent = 'Billing portal unavailable';
+                    manageSubscriptionBtn.textContent = 'Payments unavailable';
                     manageSubscriptionBtn.className = 'secondary';
                     manageSubscriptionBtn.style.opacity = '0.6';
                     manageSubscriptionBtn.style.cursor = 'not-allowed';
                 }
                 const helperText = document.createElement('p');
                 helperText.style.cssText = 'font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;';
-                helperText.textContent = 'No Stripe customer ID for this account.';
+                if (!stripeEnabled) {
+                    helperText.textContent = 'Payments are not configured.';
+                } else {
+                    helperText.textContent = 'No Stripe customer ID for this account.';
+                }
                 profilePlanActions.appendChild(helperText);
             }
         } else {
-            // Free user - show Upgrade to Pro
-            if (upgradeToProBtn) {
-                upgradeToProBtn.style.display = 'block';
-                upgradeToProBtn.disabled = !me.stripe_enabled;
-                if (!me.stripe_enabled) {
+            // Free user - show Upgrade to Pro (hide Manage Subscription)
+            if (manageSubscriptionBtn) manageSubscriptionBtn.style.display = 'none';
+            
+            if (stripeEnabled) {
+                // Free user with Stripe enabled - show Upgrade enabled
+                if (upgradeToProBtn) {
+                    upgradeToProBtn.style.display = 'block';
+                    upgradeToProBtn.disabled = false;
+                    upgradeToProBtn.textContent = 'Upgrade to Pro';
+                    upgradeToProBtn.className = 'primary';
+                    upgradeToProBtn.style.opacity = '';
+                    upgradeToProBtn.style.cursor = '';
+                }
+            } else {
+                // Free user without Stripe - show disabled button
+                if (upgradeToProBtn) {
+                    upgradeToProBtn.style.display = 'block';
+                    upgradeToProBtn.disabled = true;
+                    upgradeToProBtn.textContent = 'Payments unavailable';
                     upgradeToProBtn.className = 'secondary';
                     upgradeToProBtn.style.opacity = '0.6';
                     upgradeToProBtn.style.cursor = 'not-allowed';
-                    const helperText = document.createElement('p');
-                    helperText.style.cssText = 'font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;';
-                    helperText.textContent = 'Payments are not configured.';
-                    profilePlanActions.appendChild(helperText);
                 }
+                const helperText = document.createElement('p');
+                helperText.style.cssText = 'font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;';
+                helperText.textContent = 'Payments are not configured.';
+                profilePlanActions.appendChild(helperText);
             }
         }
     }
