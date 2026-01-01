@@ -1024,8 +1024,34 @@ async def extract_fields(
                 response_data["upload_id"] = upload_id
                 response_data["preview_url"] = f"/preview-upload/{upload_id}"
             
+            # Add plan info if authenticated
+            if is_authenticated and user:
+                response_data["is_pro"] = user.get("is_pro", False)
+                response_data["plan"] = "pro" if user.get("is_pro") else "free"
+            
+            # Create response
+            json_response = JSONResponse(response_data)
+            
+            # Set ffai_token cookie if we created a new token for anonymous user
+            if new_token_raw and not is_authenticated:
+                # Determine if request is HTTPS (check X-Forwarded-Proto for Railway/proxy)
+                scheme = request.url.scheme
+                x_forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+                is_https = (scheme == "https") or (x_forwarded_proto == "https") or IS_PRODUCTION
+                
+                json_response.set_cookie(
+                    key="ffai_token",
+                    value=_sign_token(new_token_raw),
+                    httponly=True,
+                    secure=is_https,
+                    samesite="lax",
+                    max_age=31536000,  # 1 year
+                    path="/"
+                )
+                logger.info("POST /fields: set ffai_token cookie for anonymous user")
+            
             # Return stable JSON shape that frontend expects
-            return JSONResponse(response_data)
+            return json_response
         except HTTPException:
             raise
         except Exception as exc:
