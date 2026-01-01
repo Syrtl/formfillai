@@ -895,26 +895,42 @@ async def extract_fields(
     request: Request,
     pdf_file: UploadFile = File(...)
 ) -> JSONResponse:
-    """Extract form fields from a fillable PDF."""
+    """Extract form fields from a fillable PDF. Supports both authenticated and anonymous users."""
     # Log cookie presence for debugging
     cookie_keys = list(request.cookies.keys())
     session_cookie = request.cookies.get("session")
     session_present = bool(session_cookie)
     session_prefix = session_cookie[:8] if session_cookie and len(session_cookie) >= 8 else None
     
-    # Check authentication - return 401 if not authenticated
+    # Check authentication (optional)
     user = await get_current_user_async(request)
-    if not user:
-        logger.warning("POST /fields: unauthenticated request cookie_keys=%s session_present=%s session_prefix=%s",
-                      cookie_keys, session_present, session_prefix)
-        raise HTTPException(
-            status_code=401,
-            detail="Please sign in to analyze PDFs."
-        )
+    is_authenticated = user is not None
+    user_id = user.get("id") if user else None
+    user_email = user.get("email") if user else None
     
-    user_id = user.get("id")
-    user_email = user.get("email")
-    is_authenticated = True
+    # For anonymous users, use ffai_token cookie for identity and enforce daily limit
+    token_cookie = request.cookies.get("ffai_token")
+    token_raw = _verify_token(token_cookie)
+    new_token_raw: Optional[str] = None
+    response = None  # Will be set if we need to create a new token cookie
+    
+    if not is_authenticated:
+        # Anonymous user - check/create token and enforce daily limit
+        if token_raw is None:
+            new_token_raw = secrets.token_urlsafe(24)
+            token_raw = new_token_raw
+            logger.info("POST /fields: created new anonymous token for analyze")
+        
+        # Check daily limit for anonymous users (1 analyze per day)
+        try:
+            usage_limiter.check_and_increment(token_raw, limit=FREE_DAILY_LIMIT)
+        except HTTPException as e:
+            # Limit exceeded - return 429 with clear message
+            logger.warning("POST /fields: daily limit exceeded for anonymous token")
+            raise HTTPException(
+                status_code=429,
+                detail="Daily free limit reached. Please sign in or upgrade to Pro."
+            )
     
     # Log analyze request with content-type
     filename = pdf_file.filename or "unknown"

@@ -433,18 +433,55 @@ document.addEventListener('DOMContentLoaded', () => {
                     hudLog(`POST /fields -> status ${response.status} + ${responsePreview}`);
                 }
                 
+                // Handle specific error status codes
+                if (response.status === 429) {
+                    // Daily limit exceeded
+                    let errorDetail = 'Daily free limit reached. Please sign in or upgrade to Pro.';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        if (errorData.detail) {
+                            errorDetail = errorData.detail;
+                        }
+                    } catch (e) {
+                        // Use default message
+                    }
+                    
+                    if (DEBUG) hudLog(`ERROR: Daily limit exceeded (429)`);
+                    if (typeof showToast === 'function') {
+                        showToast(errorDetail, 'error');
+                    }
+                    return;
+                }
+                
                 if (response.status === 401) {
+                    // Should not happen after backend fix, but keep as safety
                     if (DEBUG) hudLog('ERROR: Not signed in (401)');
                     if (typeof showToast === 'function') {
-                        showToast('Please sign in first', 'error');
+                        showToast('Please sign in to continue', 'error');
+                    }
+                    // Open sign-in modal
+                    const signInBtn = document.getElementById('sign-in-btn');
+                    if (signInBtn) {
+                        signInBtn.click();
                     }
                     return;
                 }
                 
                 if (!response.ok) {
+                    // Other errors
+                    let errorDetail = 'Failed to analyze PDF';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        if (errorData.detail) {
+                            errorDetail = errorData.detail;
+                        }
+                    } catch (e) {
+                        // Use default message
+                    }
+                    
                     if (DEBUG) hudLog(`ERROR: Analyze failed: ${response.status}`);
                     if (typeof showToast === 'function') {
-                        showToast('Failed to analyze PDF', 'error');
+                        showToast(errorDetail, 'error');
                     }
                     return;
                 }
@@ -455,6 +492,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     responseData = JSON.parse(responseText);
                 } catch (parseErr) {
                     if (DEBUG) hudLog(`ERROR: Failed to parse response: ${parseErr.message}`);
+                    if (typeof showToast === 'function') {
+                        showToast('Failed to parse response', 'error');
+                    }
                     return;
                 }
                 
@@ -517,9 +557,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 if (DEBUG) hudLog(`ERROR: ${err.message}`);
                 if (typeof showToast === 'function') {
-                    showToast('Failed to analyze PDF', 'error');
+                    showToast(`Failed to analyze PDF: ${err.message}`, 'error');
                 }
             } finally {
+                // Always restore button state - critical to prevent UI hang
                 analyzeBtn.disabled = false;
                 analyzeBtn.textContent = 'Analyze PDF';
             }
