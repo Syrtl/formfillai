@@ -892,7 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fullName = profileFullName.value.trim();
         const phone = profilePhone.value.trim();
         
-        setProfileStatus('Saving profile…', 'info');
+                setProfileStatus('Saving profile…', 'info', { autoHide: false });
         
         try {
             if (saveProfileBtn) {
@@ -910,7 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await parseResponse(response);
             
             if (response.ok) {
-                setProfileStatus('Saved ✅', 'success');
+                setProfileStatus('Saved successfully', 'success', { autoHide: true });
                 // Verify by calling /api/me and repopulate inputs
                 try {
                     const verifyResponse = await fetch('/api/me', { credentials: 'include' });
@@ -943,49 +943,72 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Helper function for profile status
-    function setProfileStatus(msg, type) {
+    // Auto-hide timer for profile status
+    let profileStatusTimer = null;
+    
+    // Helper function for profile status with animations and auto-hide
+    function setProfileStatus(msg, type = 'info', { autoHide = true } = {}) {
         const profileStatus = getEl('profileStatus');
         if (!profileStatus) {
             if (DEBUG) hudLog('WARNING: profileStatus element not found');
             return;
         }
         
+        // Clear any existing timer
+        if (profileStatusTimer) {
+            clearTimeout(profileStatusTimer);
+            profileStatusTimer = null;
+        }
+        
         if (!msg) {
+            // Hide message
+            profileStatus.classList.remove('show', 'success', 'error', 'info');
             profileStatus.textContent = '';
-            profileStatus.style.color = '';
             return;
         }
         
-        let color = '#666'; // default gray for info
+        // Remove all type classes
+        profileStatus.classList.remove('success', 'error', 'info');
+        
+        // Add appropriate type class
         if (type === 'success') {
-            color = '#16a34a'; // green
+            profileStatus.classList.add('success');
         } else if (type === 'error') {
-            color = '#ef4444'; // red
+            profileStatus.classList.add('error');
+        } else {
+            profileStatus.classList.add('info');
         }
         
+        // Set message text
         profileStatus.textContent = msg;
-        profileStatus.style.color = color;
-        profileStatus.style.display = 'block';
-        profileStatus.style.minHeight = '1.5rem';
-        profileStatus.style.padding = '0.5rem';
-        profileStatus.style.borderRadius = '4px';
-        if (type === 'error') {
-            profileStatus.style.backgroundColor = '#fee2e2';
-        } else if (type === 'success') {
-            profileStatus.style.backgroundColor = '#dcfce7';
-        } else {
-            profileStatus.style.backgroundColor = '#f3f4f6';
+        
+        // Show with animation
+        // Use requestAnimationFrame to ensure the element is ready for transition
+        requestAnimationFrame(() => {
+            profileStatus.classList.add('show');
+        });
+        
+        // Auto-hide for success and info (not errors)
+        if (autoHide && (type === 'success' || type === 'info')) {
+            profileStatusTimer = setTimeout(() => {
+                profileStatus.classList.remove('show');
+                // Clear text after animation completes
+                setTimeout(() => {
+                    profileStatus.textContent = '';
+                    profileStatus.classList.remove('success', 'error', 'info');
+                }, 300); // Match transition duration
+            }, 3500); // 3.5 seconds
         }
+        // Errors don't auto-hide - they persist until next action
     }
     
     // Helper functions for profile status (for convenience)
     function setProfileStatusSuccess(msg) {
-        setProfileStatus(msg, 'success');
+        setProfileStatus(msg, 'success', { autoHide: true });
     }
     
     function setProfileStatusError(msg) {
-        setProfileStatus(msg, 'error');
+        setProfileStatus(msg, 'error', { autoHide: false });
     }
     
     function clearProfileStatus() {
@@ -1155,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
                 
-                setProfileStatus('Updating email…', 'info');
+                setProfileStatus('Updating email…', 'info', { autoHide: false });
                 
                 try {
                     saveEmailBtn.disabled = true;
@@ -1434,7 +1457,7 @@ document.addEventListener('click', async (e) => {
                     if (portalUrl) {
                         const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
                         if (w) {
-                            setProfileStatus('Billing portal opened in new tab ✅', 'success');
+                            setProfileStatus('Billing portal opened in new tab', 'success', { autoHide: true });
                             if (DEBUG) hudLog('Billing portal opened in new tab');
                         } else {
                             window.location.href = portalUrl;
