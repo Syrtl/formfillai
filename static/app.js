@@ -1331,59 +1331,7 @@ document.addEventListener('click', async (e) => {
         if (btn && !btn.disabled) {
             e.preventDefault();
             e.stopPropagation();
-            
-            const profileFullName = getEl('profileFullName');
-            const profilePhone = getEl('profilePhone');
-            
-            if (!profileFullName || !profilePhone) {
-                setProfileStatus('Something went wrong. Please refresh.', 'error');
-                return;
-            }
-            
-            const fullName = profileFullName.value.trim();
-            const phone = profilePhone.value.trim();
-            
-            setProfileStatus('Saving profile…', 'info');
-            
-            try {
-                btn.disabled = true;
-                btn.textContent = 'Saving…';
-                
-                const response = await fetch('/api/profile/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ full_name: fullName, phone: phone })
-                });
-                
-                const data = await parseResponse(response);
-                
-                if (response.ok) {
-                    setProfileStatus('Saved ✅', 'success');
-                    try {
-                        const verifyResponse = await fetch('/api/me', { credentials: 'include' });
-                        if (verifyResponse.ok) {
-                            const verifyData = await verifyResponse.json();
-                            if (verifyData.authenticated) {
-                                if (profileFullName) profileFullName.value = verifyData.full_name || '';
-                                if (profilePhone) profilePhone.value = verifyData.phone || '';
-                            }
-                        }
-                    } catch (verifyErr) {
-                        if (DEBUG) hudLog(`Verify error: ${verifyErr.message}`);
-                    }
-                } else {
-                    const errorDetail = data.detail || 'Failed to update profile';
-                    const errorPreview = errorDetail.substring(0, 200);
-                    setProfileStatus(`Error (${response.status}): ${errorPreview}`, 'error');
-                }
-            } catch (err) {
-                setProfileStatus(`Error: ${err.message}`, 'error');
-                if (DEBUG) hudLog(`Save profile error: ${err.message}`);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Save Changes';
-            }
+            await saveProfile();
         }
     }
     
