@@ -870,7 +870,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                             const statusMsg = `HTTP ${portalResponse.status} ${portalResponse.statusText}`;
                                             
                                             if (portalResponse.ok) {
-                                                if (portalData.url) {
+                                                const portalUrl = portalData.url;
+                                                if (portalUrl) {
                                                     // Try to open in new tab
                                                     const newWindow = window.open(portalUrl, '_blank', 'noopener,noreferrer');
                                                     
