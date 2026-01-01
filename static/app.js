@@ -1175,14 +1175,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (userEmailEl) {
                         userEmailEl.textContent = data.email || newEmail;
                     }
-                    // Update profileEmail display
-                    const profileEmail = document.getElementById('profileEmail');
-                    if (profileEmail) {
-                        profileEmail.value = data.email || newEmail;
+                    // Update profileEmailCurrent display
+                    const profileEmailCurrent = document.getElementById('profileEmailCurrent');
+                    if (profileEmailCurrent) {
+                        profileEmailCurrent.value = data.email || newEmail;
                     }
-                    // Also update profileNewEmail
-                    if (profileNewEmail) {
-                        profileNewEmail.value = data.email || newEmail;
+                    // Also update profileEmailNew
+                    if (profileEmailNew) {
+                        profileEmailNew.value = data.email || newEmail;
                     }
                     // Refresh auth UI
                     await updateAuthUI();
