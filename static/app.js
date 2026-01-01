@@ -1106,7 +1106,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
-                    body: JSON.stringify({ new_email: newEmail })
+                    body: JSON.stringify({ new_email: newEmail, email: newEmail })
                 });
                 
                 const data = await parseResponse(response);
