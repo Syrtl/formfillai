@@ -1025,15 +1025,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     setProfileStatus('Something went wrong. Please refresh.', 'error');
                     return;
                 }
-            
-            const fullName = profileFullName.value.trim();
-            const phone = profilePhone.value.trim();
-            
-            setProfileStatus('Saving profile…', 'info');
-            
-            try {
-                saveProfileBtn.disabled = true;
-                saveProfileBtn.textContent = 'Saving…';
+                
+                const fullName = profileFullName.value.trim();
+                const phone = profilePhone.value.trim();
+                
+                setProfileStatus('Saving profile…', 'info');
+                
+                try {
+                    saveProfileBtn.disabled = true;
+                    saveProfileBtn.textContent = 'Saving…';
                 
                 const response = await fetch('/api/profile/update', {
                     method: 'POST',
@@ -1090,19 +1090,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     setProfileStatus('Something went wrong. Please refresh.', 'error');
                     return;
                 }
-            
-            const newEmail = profileEmailNew.value.trim();
-            
-            if (!newEmail) {
-                setProfileStatus('Email cannot be empty', 'error');
-                return;
-            }
-            
-            setProfileStatus('Updating email…', 'info');
-            
-            try {
-                saveEmailBtn.disabled = true;
-                saveEmailBtn.textContent = 'Saving…';
+                
+                const newEmail = profileEmailNew.value.trim();
+                
+                if (!newEmail) {
+                    setProfileStatus('Email cannot be empty', 'error');
+                    return;
+                }
+                
+                setProfileStatus('Updating email…', 'info');
+                
+                try {
+                    saveEmailBtn.disabled = true;
+                    saveEmailBtn.textContent = 'Saving…';
                 
                 const response = await fetch('/api/profile/update-email', {
                     method: 'POST',
@@ -1116,12 +1116,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     setProfileStatus('Email updated ✅', 'success');
                     // Update header email immediately
-                    const userEmailEl = document.getElementById('user-email');
+                    const userEmailEl = getEl('user-email');
                     if (userEmailEl) {
                         userEmailEl.textContent = data.email || newEmail;
                     }
                     // Update profileEmailCurrent display
-                    const profileEmailCurrent = document.getElementById('profileEmailCurrent');
+                    const profileEmailCurrent = getEl('profileEmailCurrent');
                     if (profileEmailCurrent) {
                         profileEmailCurrent.value = data.email || newEmail;
                     }
@@ -1140,7 +1140,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         setProfileStatus(errorDetail, 'error');
                     } else if (response.status === 409) {
                         // Email already taken
-                        setProfileStatus(errorDetail, 'error');
+                        setProfileStatus('Email already in use', 'error');
                     } else {
                         // Other errors
                         setProfileStatus(`Error (${response.status}): ${errorDetail}`, 'error');
@@ -1153,9 +1153,115 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveEmailBtn.disabled = false;
                 saveEmailBtn.textContent = 'Save Email';
             }
-        });
-        if (DEBUG) hudLog('Save email button handler attached');
+            });
+            if (DEBUG) hudLog('Save email button handler attached');
+        }
+        
+        // Manage Subscription handler
+        if (manageSubscriptionBtn) {
+            manageSubscriptionBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                setProfileStatus('Opening billing portal…', 'info');
+                
+                try {
+                    manageSubscriptionBtn.disabled = true;
+                    manageSubscriptionBtn.textContent = 'Opening…';
+                    
+                    const portalResponse = await fetch('/billing/portal', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: '{}'
+                    });
+                    
+                    const portalData = await parseResponse(portalResponse);
+                    
+                    if (portalResponse.ok) {
+                        // Handle both {"ok": true, "url": ...} and {"url": ...} formats
+                        const portalUrl = portalData.url || portalData.data?.url;
+                        if (portalUrl) {
+                            const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
+                            if (w) {
+                                setProfileStatus('Billing portal opened in new tab ✅', 'success');
+                                if (DEBUG) hudLog('Billing portal opened in new tab');
+                            } else {
+                                window.location.href = portalUrl;
+                                setProfileStatus('Popup blocked, redirecting…', 'info');
+                                if (DEBUG) hudLog('Billing portal: popup blocked, using window.location');
+                            }
+                        } else {
+                            setProfileStatus('Error: No portal URL returned', 'error');
+                            if (DEBUG) hudLog(`Billing portal response: ${JSON.stringify(portalData)}`);
+                        }
+                    } else {
+                        // Handle specific error cases
+                        const errorDetail = portalData.detail || portalData.message || 'Failed to open billing portal';
+                        
+                        if (portalResponse.status === 503) {
+                            // Stripe not configured
+                            setProfileStatus('Payments are not configured. Portal unavailable.', 'error');
+                            manageSubscriptionBtn.disabled = true;
+                            manageSubscriptionBtn.className = 'secondary';
+                            manageSubscriptionBtn.style.opacity = '0.6';
+                            manageSubscriptionBtn.style.cursor = 'not-allowed';
+                        } else if (portalResponse.status === 400) {
+                            // No customer ID
+                            setProfileStatus(errorDetail, 'error');
+                            manageSubscriptionBtn.disabled = true;
+                            manageSubscriptionBtn.className = 'secondary';
+                            manageSubscriptionBtn.style.opacity = '0.6';
+                            manageSubscriptionBtn.style.cursor = 'not-allowed';
+                        } else {
+                            // Other errors
+                            const errorPreview = errorDetail.substring(0, 200);
+                            setProfileStatus(`Error (${portalResponse.status}): ${errorPreview}`, 'error');
+                        }
+                    }
+                } catch (err) {
+                    setProfileStatus(`Error: ${err.message}`, 'error');
+                    if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
+                } finally {
+                    if (!manageSubscriptionBtn.disabled) {
+                        manageSubscriptionBtn.disabled = false;
+                        manageSubscriptionBtn.textContent = 'Manage Subscription';
+                    }
+                }
+            });
+            if (DEBUG) hudLog('Manage subscription button handler attached');
+        }
+        
+        // Upgrade to Pro handler
+        if (upgradeToProBtn) {
+            upgradeToProBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                if (profileModal) profileModal.classList.remove('active');
+                const upgradeForm = getEl('upgrade-form');
+                if (upgradeForm) {
+                    upgradeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    const upgradeBtnMain = getEl('upgrade-btn');
+                    if (upgradeBtnMain) {
+                        upgradeBtnMain.click();
+                    }
+                }
+            });
+            if (DEBUG) hudLog('Upgrade to Pro button handler attached');
+        }
+        
+        // Close button handler
+        if (closeProfileBtn && profileModal) {
+            closeProfileBtn.addEventListener('click', () => {
+                profileModal.classList.remove('active');
+            });
+            if (DEBUG) hudLog('Close profile button handler attached');
+        }
     }
+    
+    // Bind profile modal handlers (primary method)
+    bindProfileModalHandlers();
     
     if (DEBUG) hudLog('All handlers attached');
 });
