@@ -860,15 +860,34 @@ document.addEventListener('DOMContentLoaded', () => {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         
-                                        clearProfileStatus();
-                                        
                                         const profileStatus = document.getElementById('profile-status');
-                                        if (profileStatus) {
-                                            profileStatus.innerHTML = '<div style="color: #666; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 4px; margin-bottom: 1rem;">Opening billing portal…</div>';
+                                        
+                                        if (!profileStatus) {
+                                            return;
                                         }
                                         
-                                        if (typeof showToast === 'function') {
-                                            showToast('Opening billing portal…', 'info');
+                                        // Test network connectivity first
+                                        try {
+                                            const pingResponse = await fetch('/debug/ping', { credentials: 'include' });
+                                            if (!pingResponse.ok) {
+                                                if (profileStatus) {
+                                                    profileStatus.textContent = 'Network failure: can\'t reach server';
+                                                    profileStatus.style.color = '#ef4444';
+                                                }
+                                                return;
+                                            }
+                                        } catch (pingErr) {
+                                            if (profileStatus) {
+                                                profileStatus.textContent = `Network failure: can't reach server (${pingErr.message})`;
+                                                profileStatus.style.color = '#ef4444';
+                                            }
+                                            return;
+                                        }
+                                        
+                                        // Show status
+                                        if (profileStatus) {
+                                            profileStatus.textContent = 'Opening billing portal…';
+                                            profileStatus.style.color = '#666';
                                         }
                                         
                                         try {
@@ -878,7 +897,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                             const portalResponse = await fetch('/billing/portal', {
                                                 method: 'POST',
                                                 headers: { 'Content-Type': 'application/json' },
-                                                credentials: 'include'
+                                                credentials: 'include',
+                                                body: '{}'
                                             });
                                             
                                             const portalData = await parseResponse(portalResponse);
@@ -941,8 +961,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                             }
                                             if (DEBUG) hudLog(`Billing portal error: ${err.message}`);
                                         } finally {
-                                            newBtn.disabled = false;
-                                            newBtn.textContent = 'Manage Subscription';
+                                            manageSubscriptionBtn.disabled = false;
+                                            manageSubscriptionBtn.textContent = 'Manage Subscription';
                                         }
                                     });
                                     if (DEBUG) hudLog('Manage subscription button handler attached');
