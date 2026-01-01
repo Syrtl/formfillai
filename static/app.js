@@ -1194,7 +1194,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await parseResponse(response);
                 
                 if (response.ok) {
-                    setProfileStatus('Email updated ✅', 'success');
+                    setProfileStatus('Email updated', 'success', { autoHide: true });
                     // Update header email immediately
                     const userEmailEl = getEl('user-email');
                     if (userEmailEl) {
@@ -1264,7 +1264,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (portalUrl) {
                             const w = window.open(portalUrl, '_blank', 'noopener,noreferrer');
                             if (w) {
-                                setProfileStatus('Billing portal opened in new tab ✅', 'success');
+                                setProfileStatus('Billing portal opened in new tab', 'success', { autoHide: true });
                                 if (DEBUG) hudLog('Billing portal opened in new tab');
                             } else {
                                 window.location.href = portalUrl;
@@ -1395,7 +1395,7 @@ document.addEventListener('click', async (e) => {
                 const data = await parseResponse(response);
                 
                 if (response.ok) {
-                    setProfileStatus('Email updated ✅', 'success');
+                    setProfileStatus('Email updated', 'success', { autoHide: true });
                     const userEmailEl = getEl('user-email');
                     if (userEmailEl) {
                         userEmailEl.textContent = data.email || newEmail;
